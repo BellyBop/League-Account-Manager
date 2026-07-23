@@ -1,0 +1,1089 @@
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Renderer: builds the account cards and wires up the modals.
+// All privileged work (file IO, Riot API) goes through window.api (preload).
+//
+// Deliberately kept as one plain script rather than split into ES modules:
+// this is loaded via win.loadFile() (a file:// origin), where Chromium's
+// module loader hits CORS restrictions that a bundler or custom protocol
+// would be needed to work around — not worth the added build complexity for
+// this app's size.
+// ---------------------------------------------------------------------------
+
+const el = (id) => document.getElementById(id);
+const cardsEl = el('cards');
+const emptyStateEl = el('emptyState');
+const noMatchesEl = el('noMatches');
+const keyWarningEl = el('keyWarning');
+
+let accounts = [];
+let settings = { apiKey: '', defaultRegion: 'oce' };
+let regions = {};
+let editingId = null; // null => adding a new account
+let mastery = null;
+let searchText = '';
+let filterType = '';
+let filterRank = '';
+let draggedAccountId = null;
+let activeAccountStatus = null;
+
+const ACTIVE_ACCOUNT_POLL_MS = 15000;
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+async function init() {
+  regions = await window.api.getRegions();
+  settings = await window.api.getSettings();
+  accounts = await window.api.getAccounts();
+  mastery = await window.api.getMastery();
+
+  populateRegionSelect(el('fieldRegion'));
+  populateRegionSelect(el('fieldDefaultRegion'));
+
+  wireEvents();
+  applyDensity();
+  render();
+  renderMastery();
+  refreshAll(); // pull fresh data on launch (uses cache instantly, then updates)
+
+  // Local-only and cheap (no Riot API involved), so this can poll far more
+  // often than the account cards do — it's just asking the League Client
+  // running on this PC who's currently signed in.
+  refreshActiveAccount();
+  setInterval(refreshActiveAccount, ACTIVE_ACCOUNT_POLL_MS);
+}
+
+function applyDensity() {
+  document.body.classList.toggle('compact', !!settings.compactView);
+  const btn = el('densityToggleBtn');
+  btn.textContent = settings.compactView ? '▭ Wide view' : '▦ Compact view';
+  btn.title = settings.compactView ? 'Switch to the wide layout' : 'Switch to a denser layout';
+}
+
+async function toggleDensity() {
+  settings = await window.api.saveSettings({ compactView: !settings.compactView });
+  applyDensity();
+}
+
+function populateRegionSelect(select) {
+  select.innerHTML = '';
+  for (const [key, r] of Object.entries(regions)) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = r.label;
+    select.appendChild(opt);
+  }
+}
+
+function keyLooksMissing() {
+  return !settings.apiKey || !settings.apiKey.startsWith('RGAPI-');
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function matchesFilters(account) {
+  if (filterType && account.label !== filterType) return false;
+  if (filterRank) {
+    const tier = (account.cache && account.cache.solo && account.cache.solo.tier) || 'UNRANKED';
+    if (tier !== filterRank) return false;
+  }
+  if (!searchText) return true;
+  const region = (regions[account.region] && regions[account.region].label) || account.region || '';
+  const haystack = [
+    account.label,
+    account.riotId,
+    account.email,
+    account.loginUsername,
+    account.notes,
+    region,
+  ].join(' ').toLowerCase();
+  return haystack.includes(searchText);
+}
+
+function render() {
+  keyWarningEl.classList.toggle('hidden', !keyLooksMissing());
+
+  // Favorites float to the top; stable sort keeps everything else in its
+  // existing (drag-ordered) relative position.
+  const visible = accounts.filter(matchesFilters)
+    .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+
+  cardsEl.innerHTML = '';
+  emptyStateEl.classList.toggle('hidden', accounts.length !== 0);
+  noMatchesEl.classList.toggle('hidden', accounts.length === 0 || visible.length !== 0);
+
+  for (const account of visible) {
+    cardsEl.appendChild(buildCard(account));
+  }
+
+  renderRosterDistribution();
+  renderActiveAccount();
+}
+
+// Highest tier first, Unranked last — always reflects every tracked account,
+// regardless of the current search/filter (an overview, not a filtered view).
+const TIER_DISPLAY_ORDER = [
+  'CHALLENGER', 'GRANDMASTER', 'MASTER', 'DIAMOND', 'EMERALD',
+  'PLATINUM', 'GOLD', 'SILVER', 'BRONZE', 'IRON', 'UNRANKED',
+];
+
+function renderRosterDistribution() {
+  const widget = el('rosterWidget');
+  if (accounts.length === 0) {
+    widget.classList.add('hidden');
+    return;
+  }
+  widget.classList.remove('hidden');
+
+  el('rosterTotal').textContent = `${accounts.length} account${accounts.length === 1 ? '' : 's'}`;
+
+  const counts = {};
+  for (const account of accounts) {
+    const tier = (account.cache && account.cache.solo && account.cache.solo.tier) || 'UNRANKED';
+    counts[tier] = (counts[tier] || 0) + 1;
+  }
+
+  const chipsEl = el('rosterChips');
+  chipsEl.innerHTML = '';
+  for (const tier of TIER_DISPLAY_ORDER) {
+    if (!counts[tier]) continue;
+    const chip = document.createElement('span');
+    chip.className = `roster-chip tier-${tier}`;
+    chip.innerHTML = `<span class="tier">${counts[tier]}</span> ${titleCase(tier)}`;
+    chipsEl.appendChild(chip);
+  }
+}
+
+// Drop target is the whole card (not just the handle) so you can drop
+// anywhere on the card you're dragging onto.
+function wireCardDragAndDrop(card, accountId) {
+  card.addEventListener('dragover', (e) => {
+    if (!draggedAccountId || draggedAccountId === accountId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    card.classList.add('drag-over');
+  });
+  card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+  card.addEventListener('drop', (e) => {
+    e.preventDefault();
+    card.classList.remove('drag-over');
+    if (!draggedAccountId || draggedAccountId === accountId) return;
+    reorderAccounts(draggedAccountId, accountId);
+  });
+}
+
+async function toggleFavorite(account) {
+  account.favorite = !account.favorite;
+  await window.api.updateAccount(account.id, { favorite: account.favorite });
+  render();
+}
+
+async function reorderAccounts(draggedId, targetId) {
+  const fromIdx = accounts.findIndex((a) => a.id === draggedId);
+  if (fromIdx === -1) return;
+  const [moved] = accounts.splice(fromIdx, 1);
+
+  const toIdx = accounts.findIndex((a) => a.id === targetId);
+  accounts.splice(toIdx === -1 ? fromIdx : toIdx, 0, moved);
+  render();
+
+  await window.api.reorderAccounts(accounts.map((a) => a.id));
+}
+
+function buildCard(account) {
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.dataset.id = account.id;
+  wireCardDragAndDrop(card, account.id);
+
+  const data = account.cache;
+
+  // ---- Head: profile icon, label, IGN, actions ----
+  const head = document.createElement('div');
+  head.className = 'card-head';
+
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'drag-handle';
+  dragHandle.textContent = '⠿';
+  dragHandle.title = 'Drag to reorder';
+  dragHandle.draggable = true;
+  dragHandle.addEventListener('dragstart', (e) => {
+    draggedAccountId = account.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', account.id);
+  });
+  dragHandle.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    draggedAccountId = null;
+  });
+  head.appendChild(dragHandle);
+
+  const favBtn = document.createElement('button');
+  favBtn.className = 'fav-btn';
+  favBtn.textContent = account.favorite ? '⭐' : '☆';
+  favBtn.title = account.favorite ? 'Unfavorite' : 'Favorite (pins to the top)';
+  favBtn.addEventListener('click', () => toggleFavorite(account));
+  head.appendChild(favBtn);
+
+  if (account.favorite) card.classList.add('favorite');
+
+  const icon = document.createElement('img');
+  icon.className = 'profile-icon';
+  icon.alt = '';
+  if (data && data.profileIcon) icon.src = data.profileIcon;
+  head.appendChild(icon);
+
+  const identity = document.createElement('div');
+  identity.className = 'card-identity';
+  identity.innerHTML = `
+    ${account.label ? `<span class="card-label">${escapeHtml(account.label)}</span><br>` : ''}
+    <div class="card-ign" title="Click to copy Riot ID">${ignHtml(account, data)}</div>
+    <div class="card-sub">${subLine(account, data)}</div>
+    ${metaLine(account)}
+  `;
+  const ignEl = identity.querySelector('.card-ign');
+  ignEl.addEventListener('click', () => copyRiotId(account, data, ignEl));
+  head.appendChild(identity);
+
+  const headActions = document.createElement('div');
+  headActions.className = 'card-head-actions';
+  const opggBtn = button('📊', 'btn btn-ghost btn-small', () => openOpgg(account, data));
+  opggBtn.title = 'Open on op.gg';
+  const signInBtn = button('🔑', 'btn btn-ghost btn-small', (e) => signInAccount(account.id, e.currentTarget));
+  signInBtn.title = 'Copy login username & launch Riot Client';
+  const refreshBtn = button('↻', 'btn btn-ghost btn-small', () => refreshOne(account.id));
+  refreshBtn.title = 'Refresh this account';
+  const editBtn = button('✎', 'btn btn-ghost btn-small', () => openAccountModal(account.id));
+  editBtn.title = 'Edit';
+  const delBtn = button('🗑', 'btn btn-danger btn-small', () => deleteAccount(account.id));
+  delBtn.title = 'Delete';
+  headActions.append(opggBtn, signInBtn, refreshBtn, editBtn, delBtn);
+  head.appendChild(headActions);
+
+  card.appendChild(head);
+
+  // ---- Body: either error, loading, or the data ----
+  if (account._error) {
+    const errEl = document.createElement('div');
+    errEl.className = 'card-error';
+    errEl.textContent = friendlyError(account._error);
+    card.appendChild(errEl);
+  } else if (account._loading && !data) {
+    const l = document.createElement('div');
+    l.className = 'card-loading';
+    l.textContent = 'Loading…';
+    card.appendChild(l);
+  }
+
+  if (data) {
+    card.appendChild(buildRankRow(data, account));
+    const goalBlock = buildGoalBlock(account);
+    if (goalBlock) card.appendChild(goalBlock);
+    const lpBlock = buildLastLpBlock(account);
+    if (lpBlock) card.appendChild(lpBlock);
+    card.appendChild(buildGames(data));
+  }
+
+  // ---- Notes (always available) ----
+  card.appendChild(buildNotes(account));
+
+  return card;
+}
+
+function ignHtml(account, data) {
+  if (data && data.ign) {
+    return `${escapeHtml(data.gameName)}<span class="tag">#${escapeHtml(data.tagLine)}</span>`;
+  }
+  // Before first successful fetch, show what the user typed.
+  const parts = (account.riotId || '').split('#');
+  if (parts.length === 2) {
+    return `${escapeHtml(parts[0])}<span class="tag">#${escapeHtml(parts[1])}</span>`;
+  }
+  return escapeHtml(account.riotId || 'Unknown');
+}
+
+// Prefers the normalized name/tag from the last successful fetch; falls back
+// to whatever was typed in if the account hasn't been refreshed yet.
+function resolveRiotId(account, data) {
+  let gameName = data && data.gameName;
+  let tagLine = data && data.tagLine;
+  if (!gameName || !tagLine) {
+    const parts = (account.riotId || '').split('#');
+    if (parts.length === 2) [gameName, tagLine] = parts;
+  }
+  if (!gameName || !tagLine) return null;
+  return { gameName, tagLine };
+}
+
+// op.gg's region slugs match our own region keys (oce, na, euw, kr, ...).
+function opggUrl(account, data) {
+  const riotId = resolveRiotId(account, data);
+  if (!riotId || !account.region) return null;
+  return `https://www.op.gg/summoners/${account.region}/${encodeURIComponent(riotId.gameName)}-${encodeURIComponent(riotId.tagLine)}`;
+}
+
+function openOpgg(account, data) {
+  const url = opggUrl(account, data);
+  if (!url) {
+    alert('Add a valid Riot ID (GameName#TAG) first.');
+    return;
+  }
+  window.api.openExternal(url);
+}
+
+async function copyRiotId(account, data, el) {
+  const riotId = resolveRiotId(account, data);
+  if (!riotId) {
+    alert('Add a valid Riot ID (GameName#TAG) first.');
+    return;
+  }
+  await window.api.copyToClipboard(`${riotId.gameName}#${riotId.tagLine}`);
+  if (el) {
+    el.classList.add('copied');
+    setTimeout(() => el.classList.remove('copied'), 800);
+  }
+}
+
+function subLine(account, data) {
+  const region = (regions[account.region] && regions[account.region].label) || account.region;
+  if (data && data.summonerLevel) {
+    return `Level ${data.summonerLevel} · ${region}`;
+  }
+  return region;
+}
+
+function metaLine(account) {
+  const parts = [];
+  if (account.loginUsername) parts.push(`Login: ${escapeHtml(account.loginUsername)}`);
+  if (account.email) parts.push(`Email: ${escapeHtml(account.email)}`);
+  if (!parts.length) return '';
+  return `<div class="card-meta">${parts.join(' · ')}</div>`;
+}
+
+function buildRankRow(data, account) {
+  const row = document.createElement('div');
+  row.className = 'rank-row';
+  row.appendChild(rankBadge('Solo/Duo', data.solo));
+  row.appendChild(rankBadge('Flex', data.flex));
+  row.appendChild(soloTodayBadge(account));
+  return row;
+}
+
+// Combines two different data sources into one "Solo Today" block: the W/L
+// count is rebuilt from real match history (see ensureTodayMatches) and is
+// always a complete picture of the day, while the Net LP line is a running
+// total of only the games this app was actually open to capture live (see
+// lib/lpLog.js) — so it can undercount on a day the app wasn't running the
+// whole time. Shown together since they're both "how'd today go," but kept
+// visually distinct (LP as a smaller sub-line) so that difference in
+// completeness doesn't get lost.
+function soloTodayBadge(account) {
+  const badge = document.createElement('div');
+  badge.className = 'rank-badge wl-badge';
+  badge.innerHTML = `
+    <span class="queue">Solo Today</span>
+    ${formatSoloWinLossToday(account.sessionLP)}
+    ${formatNetLpToday(account.netLpToday)}
+  `;
+  badge.title = 'W/L is every ranked Solo/Duo game played today. Net LP only counts games this app was open to see start-to-finish on this PC.';
+  return badge;
+}
+
+function formatSoloWinLossToday(sessionLP) {
+  if (!sessionLP || sessionLP.soloWins == null || sessionLP.soloLosses == null) {
+    return '<span class="wl-big">&nbsp;</span>';
+  }
+  if (sessionLP.soloWins === 0 && sessionLP.soloLosses === 0) {
+    return '<span class="wl-big wl-empty">No games today</span>';
+  }
+  return `<span class="wl-big"><span class="w">${sessionLP.soloWins}W</span> <span class="l">${sessionLP.soloLosses}L</span></span>`;
+}
+
+function formatNetLpToday(net) {
+  const notes = [];
+  if (net && net.promotions) notes.push(`${net.promotions} promo`);
+  if (net && net.demotions) notes.push(`${net.demotions} demo`);
+  if (net && net.remakes) notes.push(`${net.remakes} remake`);
+
+  if (!net || (net.gamesCounted === 0 && notes.length === 0)) {
+    return '<span class="lp-sub lp-empty">No LP tracked</span>';
+  }
+
+  const sign = net.total > 0 ? '+' : '';
+  const cls = net.total > 0 ? 'gain' : net.total < 0 ? 'drop' : '';
+  return `<span class="lp-sub ${cls}">${sign}${net.total} LP${notes.length ? ' · ' + notes.join(', ') : ''}</span>`;
+}
+
+function buildGoalBlock(account) {
+  if (!account.goal) return null;
+  const progress = account.goalProgress || { percent: 0, reached: false };
+  const label = `${titleCase(account.goal.tier)}${account.goal.rank ? ' ' + account.goal.rank : ''}`;
+
+  const block = document.createElement('div');
+  block.className = `goal-block${progress.reached ? ' reached' : ''}`;
+  block.title = 'Progress measured from your rank when the goal was set, not from before — a freshly-set goal always starts at 0%.';
+  block.innerHTML = `
+    <div class="goal-label">
+      <span class="goal-name">🎯 Goal: ${escapeHtml(label)}</span>
+      <span class="goal-status">${progress.reached ? 'Reached!' : `${progress.percent}%`}</span>
+    </div>
+    <div class="goal-bar"><div class="goal-bar-fill" style="width:${progress.percent}%"></div></div>
+  `;
+  return block;
+}
+
+// Real per-game LP change for this account's most recent ranked Solo/Duo
+// game, sourced from the LCU (see computeRankedLpDelta in
+// lib/leagueClientApi.js) — only populated while this PC was signed into
+// this account for that game's EndOfGame transition, so most cards won't
+// have one.
+function buildLastLpBlock(account) {
+  const delta = account.lastLpDelta;
+  if (!delta) return null;
+
+  const block = document.createElement('div');
+  let text;
+  let cls = 'last-lp';
+  if (delta.remake) {
+    text = 'Last game: remake, no LP change';
+  } else if (delta.promoted) {
+    text = `Last game: Promoted to ${titleCase(delta.post.tier)} ${delta.post.division}!`;
+    cls += ' win';
+  } else if (delta.demoted) {
+    text = `Last game: Demoted to ${titleCase(delta.post.tier)} ${delta.post.division}`;
+    cls += ' loss';
+  } else {
+    const sign = delta.lpChange > 0 ? '+' : '';
+    text = `Last game: ${sign}${delta.lpChange} LP`;
+    cls += delta.lpChange > 0 ? ' win' : delta.lpChange < 0 ? ' loss' : '';
+  }
+  block.className = cls;
+  block.textContent = `${text} · ${timeAgo(delta.capturedAt)}`;
+  return block;
+}
+
+function rankBadge(queueLabel, rank) {
+  const badge = document.createElement('div');
+  const tier = rank ? rank.tier : 'UNRANKED';
+  badge.className = `rank-badge tier-${tier}`;
+  if (rank) {
+    const total = rank.wins + rank.losses;
+    const wr = total ? Math.round((rank.wins / total) * 100) : 0;
+    badge.innerHTML = `
+      <span class="queue">${queueLabel}</span>
+      <span class="tier">${titleCase(rank.tier)} ${rank.rank} · ${rank.lp} LP</span>
+      <span class="wl">${rank.wins}W ${rank.losses}L · ${wr}% WR</span>
+    `;
+  } else {
+    badge.innerHTML = `
+      <span class="queue">${queueLabel}</span>
+      <span class="tier">Unranked</span>
+      <span class="wl">&nbsp;</span>
+    `;
+  }
+  return badge;
+}
+
+// Riot queue IDs -> human-readable names. This list isn't fetched by queue at
+// all (it's just the 5 most recent matches, any queue), so games here can
+// easily include Flex/ARAM/Normals that don't count toward Solo W/L Today.
+const RANKED_SOLO_QUEUE_ID = 420;
+const QUEUE_NAMES = {
+  420: 'Ranked Solo/Duo',
+  440: 'Ranked Flex',
+  400: 'Normal Draft',
+  430: 'Normal Blind',
+  450: 'ARAM',
+  700: 'Clash',
+  900: 'URF',
+  1700: 'Arena',
+};
+
+function buildGames(data) {
+  const block = document.createElement('div');
+  block.className = 'games-block';
+  block.innerHTML = `
+    <div class="section-title">Last 5 games</div>
+    <div class="games-hint">Any queue — only Ranked Solo/Duo counts toward Solo W/L Today, and remakes never count.</div>
+  `;
+
+  if (!data.games || data.games.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'games-empty';
+    empty.textContent = 'No recent games found.';
+    block.appendChild(empty);
+    return block;
+  }
+
+  const row = document.createElement('div');
+  row.className = 'games-row';
+  for (const g of data.games) {
+    const isSolo = g.queueId === RANKED_SOLO_QUEUE_ID;
+    const queueLabel = QUEUE_NAMES[g.queueId] || 'Other queue';
+    const resultLabel = g.remake ? 'Remake' : g.win ? 'Win' : 'Loss';
+
+    const cell = document.createElement('div');
+    cell.className = g.remake ? 'game remake' : `game ${g.win ? 'win' : 'loss'}${isSolo ? '' : ' other-queue'}`;
+    cell.title = `${g.championName} · ${queueLabel} · ${resultLabel}${g.remake ? ' (excluded from ranked W/L)' : ''} · ${g.kills}/${g.deaths}/${g.assists}`;
+
+    const img = document.createElement('img');
+    img.src = g.championIcon;
+    img.alt = g.championName;
+    cell.appendChild(img);
+
+    if (g.remake) {
+      const badge = document.createElement('div');
+      badge.className = 'queue-badge';
+      badge.textContent = 'RMK';
+      cell.appendChild(badge);
+    } else if (!isSolo) {
+      const badge = document.createElement('div');
+      badge.className = 'queue-badge';
+      badge.textContent = queueLabel === 'Other queue' ? '?' : queueLabel.replace('Ranked ', '').slice(0, 4);
+      cell.appendChild(badge);
+    }
+    const kda = document.createElement('div');
+    kda.className = 'kda';
+    kda.textContent = `${g.kills}/${g.deaths}/${g.assists}`;
+    cell.appendChild(kda);
+    row.appendChild(cell);
+  }
+  block.appendChild(row);
+  return block;
+}
+
+function buildNotes(account) {
+  const block = document.createElement('div');
+  block.className = 'notes-block';
+  block.innerHTML = `<div class="section-title">Notes</div>`;
+
+  const textarea = document.createElement('textarea');
+  textarea.value = account.notes || '';
+  textarea.placeholder = 'Add notes about this account…';
+  block.appendChild(textarea);
+
+  const row = document.createElement('div');
+  row.className = 'notes-row';
+  const saved = document.createElement('span');
+  saved.className = 'notes-saved';
+  saved.textContent = '✓ Saved';
+  const saveBtn = button('Save notes', 'btn btn-ghost btn-small', async () => {
+    account.notes = textarea.value;
+    await window.api.updateAccount(account.id, { notes: textarea.value });
+    saved.classList.add('show');
+    setTimeout(() => saved.classList.remove('show'), 1500);
+  });
+  row.append(saved, saveBtn);
+  block.appendChild(row);
+  return block;
+}
+
+// ---------------------------------------------------------------------------
+// Data fetching
+// ---------------------------------------------------------------------------
+async function refreshOne(id) {
+  const account = accounts.find((a) => a.id === id);
+  if (!account) return;
+  if (keyLooksMissing()) {
+    account._error = 'EXPIRED_KEY';
+    render();
+    return;
+  }
+  account._loading = true;
+  account._error = null;
+  render();
+
+  const result = await window.api.fetchAccountData(id);
+  account._loading = false;
+  if (result.ok) {
+    account.cache = result.data;
+    account.sessionLP = result.sessionLP;
+    account.goalProgress = result.goalProgress;
+    account._error = null;
+  } else {
+    account._error = result.error;
+  }
+  render();
+}
+
+async function refreshAll() {
+  render(); // show cached data immediately
+  for (const account of accounts) {
+    // Sequential to stay comfortably under the dev-key rate limit.
+    await refreshOne(account.id);
+  }
+  // One check for the whole batch (not per-account) — picks up any account
+  // that's newly known to the widget without hammering the rate limit.
+  mastery = await window.api.syncMastery();
+  renderMastery();
+}
+
+async function signInAccount(id, btn) {
+  const account = accounts.find((a) => a.id === id);
+  if (!account) return;
+  if (!account.loginUsername) {
+    alert('Add a Riot Account ID (login username) under ✎ Edit first — that\'s what gets copied for sign-in.');
+    return;
+  }
+
+  await window.api.copyToClipboard(account.loginUsername);
+  const result = await window.api.launchRiotClient();
+
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = result.ok ? '✓' : '⚠';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
+
+  if (!result.ok) {
+    alert(
+      result.error === 'CLIENT_NOT_FOUND'
+        ? 'Username copied to clipboard, but the Riot Client wasn\'t found automatically. Open it yourself and paste your username.'
+        : `Username copied to clipboard, but launching the Riot Client failed: ${result.error}`
+    );
+  }
+}
+
+function renderMastery() {
+  const widget = el('masteryWidget');
+  // Keep the widget (and its ↻ button) visible whenever there's an account to
+  // compute it for — hiding it entirely whenever data's missing would strand
+  // anyone whose last refresh attempt failed, with no way to retry.
+  if (accounts.length === 0) {
+    widget.classList.add('hidden');
+    return;
+  }
+  widget.classList.remove('hidden');
+
+  const chipsEl = el('masteryChips');
+  chipsEl.innerHTML = '';
+
+  const hasData = mastery && mastery.topChampions && mastery.topChampions.length > 0;
+  if (hasData) {
+    for (const champ of mastery.topChampions) {
+      const chip = document.createElement('span');
+      chip.className = 'mastery-chip';
+      chip.textContent = `${champ.championName}: ${champ.total.toLocaleString()}`;
+      chipsEl.appendChild(chip);
+    }
+    el('masteryUpdated').textContent = `Updated ${timeAgo(mastery.fetchedAt)}`;
+  } else {
+    const chip = document.createElement('span');
+    chip.className = 'mastery-chip';
+    chip.textContent = 'Not calculated yet — click ↻';
+    chipsEl.appendChild(chip);
+    el('masteryUpdated').textContent = '';
+  }
+}
+
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const diff = Date.now() - ts;
+  const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+  if (days >= 1) return `${days}d ago`;
+  const hours = Math.floor(diff / (60 * 60 * 1000));
+  if (hours >= 1) return `${hours}h ago`;
+  const mins = Math.floor(diff / (60 * 1000));
+  return `${Math.max(mins, 0)}m ago`;
+}
+
+// Who's currently signed in to the Riot/League Client on this PC — local
+// machine state Riot's web API can't see, so this only works while that
+// client is actually running here (see lib/leagueClientApi.js).
+async function refreshActiveAccount() {
+  try {
+    activeAccountStatus = await window.api.getActiveAccountStatus();
+  } catch (e) {
+    activeAccountStatus = { signedIn: false };
+  }
+  renderActiveAccount();
+
+  // Only the account that was actually just playing — never every card, and
+  // never some other tracked account that happens to share the PC.
+  if (activeAccountStatus.gameJustEnded && activeAccountStatus.matchedAccountId) {
+    schedulePostGameRefresh(activeAccountStatus.matchedAccountId);
+  }
+
+  // Real per-game LP change for a ranked Solo/Duo game that just ended (see
+  // computeRankedLpDelta in lib/leagueClientApi.js) — the main process has
+  // already persisted it onto the matched account, so pull a fresh copy of
+  // the accounts list to pick that up and show it on the card, in addition
+  // to the transient flash below.
+  if (activeAccountStatus.lpDelta) {
+    flashActiveAccountNote(formatLpDeltaFlash(activeAccountStatus.lpDelta));
+    if (activeAccountStatus.matchedAccountId) {
+      accounts = await window.api.getAccounts();
+      render();
+    }
+  }
+}
+
+function formatLpDeltaFlash(delta) {
+  if (delta.remake) return 'Remake — no LP change';
+  if (delta.promoted) return `Promoted! ${titleCase(delta.post.tier)} ${delta.post.division}`;
+  if (delta.demoted) return `Demoted to ${titleCase(delta.post.tier)} ${delta.post.division}`;
+  const sign = delta.lpChange > 0 ? '+' : '';
+  return `${sign}${delta.lpChange} LP`;
+}
+
+function flashActiveAccountNote(text) {
+  const nameEl = el('activeAccountName');
+  const original = nameEl.textContent;
+  nameEl.textContent = `${text}`;
+  setTimeout(() => { nameEl.textContent = original; }, 8000);
+}
+
+// Riot's match API needs a little time to process a game that just ended —
+// refreshing the instant the client reports "game over" often still misses
+// it, so this waits before pulling the card's data.
+const POST_GAME_REFRESH_DELAY_MS = 15000;
+let scheduledPostGameRefreshFor = null;
+
+function schedulePostGameRefresh(accountId) {
+  if (scheduledPostGameRefreshFor === accountId) return; // already queued for this game
+  scheduledPostGameRefreshFor = accountId;
+  setTimeout(() => {
+    scheduledPostGameRefreshFor = null;
+    refreshOne(accountId);
+  }, POST_GAME_REFRESH_DELAY_MS);
+}
+
+function renderActiveAccount() {
+  const widget = el('activeAccountWidget');
+  if (accounts.length === 0) {
+    widget.classList.add('hidden');
+    return;
+  }
+  widget.classList.remove('hidden');
+
+  const icon = el('activeAccountIcon');
+  const nameEl = el('activeAccountName');
+  const status = activeAccountStatus;
+
+  if (!status || !status.signedIn) {
+    widget.classList.add('offline');
+    widget.classList.remove('clickable');
+    icon.classList.add('hidden');
+    nameEl.textContent = 'Not signed in on this PC';
+    widget.onclick = null;
+    return;
+  }
+
+  widget.classList.remove('offline');
+  icon.classList.toggle('hidden', !status.profileIcon);
+  if (status.profileIcon) icon.src = status.profileIcon;
+
+  nameEl.textContent = status.matchedLabel ? `${status.ign} — ${status.matchedLabel}` : `${status.ign} (not tracked)`;
+
+  if (status.matchedAccountId) {
+    widget.classList.add('clickable');
+    widget.onclick = () => jumpToCard(status.matchedAccountId);
+  } else {
+    widget.classList.remove('clickable');
+    widget.onclick = null;
+  }
+}
+
+function jumpToCard(accountId) {
+  const card = cardsEl.querySelector(`[data-id="${accountId}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('jump-highlight');
+  setTimeout(() => card.classList.remove('jump-highlight'), 1500);
+}
+
+async function refreshMastery() {
+  const btn = el('masteryRefreshBtn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '…';
+  mastery = await window.api.refreshMastery();
+  renderMastery();
+  btn.textContent = original;
+  btn.disabled = false;
+}
+
+async function exportBackup() {
+  const result = await window.api.exportBackup();
+  if (result.ok) {
+    alert(`Backup saved to ${result.filePath}`);
+  } else if (result.error !== 'CANCELED') {
+    alert(`Backup failed: ${result.error}`);
+  }
+}
+
+async function importBackup() {
+  if (!confirm('Restoring will replace all current accounts with the ones in the backup file. Continue?')) return;
+  const result = await window.api.importBackup();
+  if (result.ok) {
+    accounts = await window.api.getAccounts();
+    closeSettings();
+    render();
+    refreshAll();
+    alert(`Restored ${result.count} account(s).`);
+  } else if (result.error !== 'CANCELED') {
+    alert(`Restore failed: ${result.error}`);
+  }
+}
+
+const UNDO_WINDOW_MS = 8000;
+let pendingUndo = null; // { account, index, timeoutId }
+
+async function deleteAccount(id) {
+  const index = accounts.findIndex((a) => a.id === id);
+  if (index === -1) return;
+  const account = accounts[index];
+
+  // Only one undo slot — a prior pending delete just becomes permanent.
+  if (pendingUndo) clearTimeout(pendingUndo.timeoutId);
+
+  accounts = await window.api.deleteAccount(id);
+  render();
+
+  const timeoutId = setTimeout(() => {
+    pendingUndo = null;
+    el('undoToast').classList.add('hidden');
+  }, UNDO_WINDOW_MS);
+  pendingUndo = { account, index, timeoutId };
+
+  const name = account.label || account.riotId || 'Account';
+  el('undoToastText').textContent = `${name} deleted.`;
+  el('undoToast').classList.remove('hidden');
+}
+
+async function undoDelete() {
+  if (!pendingUndo) return;
+  clearTimeout(pendingUndo.timeoutId);
+  const { account, index } = pendingUndo;
+  pendingUndo = null;
+  el('undoToast').classList.add('hidden');
+
+  accounts = await window.api.restoreAccount(account, index);
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Modals
+// ---------------------------------------------------------------------------
+function openAccountModal(id) {
+  editingId = id || null;
+  const isEdit = Boolean(id);
+  el('accountModalTitle').textContent = isEdit ? 'Edit account' : 'Add account';
+
+  if (isEdit) {
+    const a = accounts.find((x) => x.id === id);
+    el('fieldLabel').value = a.label || 'Smurf';
+    el('fieldRiotId').value = a.riotId || '';
+    el('fieldRegion').value = a.region || settings.defaultRegion;
+    el('fieldEmail').value = a.email || '';
+    el('fieldLoginUsername').value = a.loginUsername || '';
+    el('fieldGoalTier').value = (a.goal && a.goal.tier) || '';
+    el('fieldGoalDivision').value = (a.goal && a.goal.rank) || 'IV';
+    el('fieldNotes').value = a.notes || '';
+  } else {
+    el('fieldLabel').value = 'Smurf';
+    el('fieldRiotId').value = '';
+    el('fieldRegion').value = settings.defaultRegion || 'oce';
+    el('fieldEmail').value = '';
+    el('fieldLoginUsername').value = '';
+    el('fieldGoalTier').value = '';
+    el('fieldGoalDivision').value = 'IV';
+    el('fieldNotes').value = '';
+  }
+  updateGoalDivisionField();
+  el('accountModal').classList.remove('hidden');
+  el('fieldLabel').focus();
+}
+
+const APEX_TIERS = ['MASTER', 'GRANDMASTER', 'CHALLENGER'];
+
+function updateGoalDivisionField() {
+  const tier = el('fieldGoalTier').value;
+  el('fieldGoalDivision').disabled = !tier || APEX_TIERS.includes(tier);
+}
+
+function closeAccountModal() {
+  el('accountModal').classList.add('hidden');
+  editingId = null;
+}
+
+function findDuplicateAccount(riotId, excludeId) {
+  const normalized = riotId.trim().toLowerCase();
+  return accounts.find((a) => a.id !== excludeId && (a.riotId || '').trim().toLowerCase() === normalized);
+}
+
+async function saveAccountModal() {
+  const label = el('fieldLabel').value.trim() || 'Smurf';
+  const riotId = el('fieldRiotId').value.trim();
+  const region = el('fieldRegion').value;
+  const email = el('fieldEmail').value.trim();
+  const loginUsername = el('fieldLoginUsername').value.trim();
+  const goalTier = el('fieldGoalTier').value;
+  const goalDivision = el('fieldGoalDivision').value;
+  const notes = el('fieldNotes').value;
+
+  if (!riotId.includes('#')) {
+    alert('Riot ID must be in the form GameName#TAG (e.g. Faker#KR1).');
+    return;
+  }
+
+  const dup = findDuplicateAccount(riotId, editingId);
+  if (dup) {
+    const dupLabel = dup.label || 'an existing account';
+    if (!confirm(`"${riotId}" is already tracked (labeled "${dupLabel}"). Add it again anyway?`)) return;
+  }
+
+  let targetId = editingId;
+  if (editingId) {
+    await window.api.updateAccount(editingId, { label, riotId, region, email, loginUsername, notes });
+  } else {
+    accounts = await window.api.addAccount({ label, riotId, region, email, loginUsername, notes });
+    targetId = accounts[accounts.length - 1].id;
+  }
+
+  if (goalTier) {
+    await window.api.setAccountGoal(targetId, goalTier, goalDivision);
+  } else {
+    await window.api.clearAccountGoal(targetId);
+  }
+  accounts = await window.api.getAccounts();
+
+  closeAccountModal();
+  render();
+  refreshOne(targetId);
+}
+
+function openSettings() {
+  el('fieldApiKey').value = settings.apiKey || '';
+  el('fieldDefaultRegion').value = settings.defaultRegion || 'oce';
+  el('settingsModal').classList.remove('hidden');
+  el('fieldApiKey').focus();
+}
+
+function closeSettings() {
+  el('settingsModal').classList.add('hidden');
+}
+
+async function saveSettings() {
+  const apiKey = el('fieldApiKey').value.trim();
+  const defaultRegion = el('fieldDefaultRegion').value;
+  settings = await window.api.saveSettings({ apiKey, defaultRegion });
+  closeSettings();
+  render();
+  refreshAll();
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function button(text, className, onClick) {
+  const b = document.createElement('button');
+  b.className = className;
+  b.textContent = text;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function titleCase(s) {
+  return s ? s.charAt(0) + s.slice(1).toLowerCase() : s;
+}
+
+function friendlyError(code) {
+  switch (code) {
+    case 'EXPIRED_KEY':
+    case 'NO_KEY':
+      return 'API key missing or expired — open Settings and paste a fresh key.';
+    case 'NOT_FOUND':
+      return 'Account not found. Check the Riot ID and region.';
+    case 'BAD_RIOT_ID':
+      return 'Riot ID must look like GameName#TAG.';
+    case 'RATE_LIMITED':
+      return 'Rate limited by Riot. Wait a moment and refresh again.';
+    default:
+      return code || 'Something went wrong.';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+function wireEvents() {
+  el('addBtn').addEventListener('click', () => openAccountModal(null));
+  el('addFirstBtn').addEventListener('click', () => openAccountModal(null));
+  el('refreshAllBtn').addEventListener('click', refreshAll);
+  el('settingsBtn').addEventListener('click', openSettings);
+  el('densityToggleBtn').addEventListener('click', toggleDensity);
+
+  el('accountCancelBtn').addEventListener('click', closeAccountModal);
+  el('accountSaveBtn').addEventListener('click', saveAccountModal);
+  el('fieldGoalTier').addEventListener('change', updateGoalDivisionField);
+  el('settingsCancelBtn').addEventListener('click', closeSettings);
+  el('settingsSaveBtn').addEventListener('click', saveSettings);
+
+  el('openSettingsFromWarning').addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
+  el('devPortalLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.api.openExternal('https://developer.riotgames.com/');
+  });
+
+  el('searchInput').addEventListener('input', (e) => {
+    searchText = e.target.value.trim().toLowerCase();
+    render();
+  });
+  el('filterType').addEventListener('change', (e) => {
+    filterType = e.target.value;
+    render();
+  });
+  el('filterRank').addEventListener('change', (e) => {
+    filterRank = e.target.value;
+    render();
+  });
+
+  el('masteryRefreshBtn').addEventListener('click', refreshMastery);
+  el('exportBackupBtn').addEventListener('click', exportBackup);
+  el('importBackupBtn').addEventListener('click', importBackup);
+  el('openAutoBackupBtn').addEventListener('click', () => window.api.openAutoBackupFolder());
+  el('undoToastBtn').addEventListener('click', undoDelete);
+
+  // Close modals on overlay click / Escape.
+  for (const overlay of document.querySelectorAll('.modal-overlay')) {
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.add('hidden'); });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay').forEach((o) => o.classList.add('hidden'));
+      return;
+    }
+
+    if (!(e.ctrlKey || e.metaKey)) return;
+    // Don't hijack these while a modal's open — the user's likely mid-form.
+    if (document.querySelector('.modal-overlay:not(.hidden)')) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'f') {
+      e.preventDefault();
+      el('searchInput').focus();
+      el('searchInput').select();
+    } else if (key === 'n') {
+      e.preventDefault();
+      openAccountModal(null);
+    } else if (key === 'r') {
+      e.preventDefault();
+      refreshAll();
+    }
+  });
+}
+
+init();

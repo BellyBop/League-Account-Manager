@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src https://ddragon.leagueoflegends.com data:; style-src 'self' 'unsafe-inline';" />
+  <title>League Account Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">⟡</span>
+      <h1>League Account Manager</h1>
+    </div>
+    <div class="topbar-actions">
+      <button id="densityToggleBtn" class="btn btn-ghost">▦ Compact view</button>
+      <button id="refreshAllBtn" class="btn btn-ghost" title="Refresh every account">↻ Refresh all</button>
+      <button id="addBtn" class="btn btn-primary">+ Add account</button>
+      <button id="settingsBtn" class="btn btn-ghost" title="Settings">⚙ Settings</button>
+    </div>
+  </header>
+
+  <div id="keyWarning" class="key-warning hidden">
+    ⚠ No API key set (or it expired). Riot keys expire every 24h —
+    <a href="#" id="openSettingsFromWarning">open Settings</a> to paste today's key.
+  </div>
+
+  <div id="activeAccountWidget" class="active-account-widget hidden" title="Whichever account is currently signed in on this PC — click to jump to its card, if tracked">
+    <img id="activeAccountIcon" class="active-account-icon hidden" alt="" />
+    <div class="active-account-info">
+      <span class="active-account-title">Currently signed in</span>
+      <span id="activeAccountName" class="active-account-name"></span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" class="search-input" placeholder="Search by label, IGN, region, notes…" />
+    <select id="filterType" class="filter-select">
+      <option value="">All types</option>
+      <option value="Smurf">Smurf</option>
+      <option value="Main">Main</option>
+    </select>
+    <select id="filterRank" class="filter-select">
+      <option value="">All ranks (Solo/Duo)</option>
+      <option value="UNRANKED">Unranked</option>
+      <option value="IRON">Iron</option>
+      <option value="BRONZE">Bronze</option>
+      <option value="SILVER">Silver</option>
+      <option value="GOLD">Gold</option>
+      <option value="PLATINUM">Platinum</option>
+      <option value="EMERALD">Emerald</option>
+      <option value="DIAMOND">Diamond</option>
+      <option value="MASTER">Master</option>
+      <option value="GRANDMASTER">Grandmaster</option>
+      <option value="CHALLENGER">Challenger</option>
+    </select>
+  </div>
+
+  <div id="masteryWidget" class="mastery-widget hidden">
+    <span class="mastery-title">Top mastery (all accounts)</span>
+    <div id="masteryChips" class="mastery-chips"></div>
+    <span id="masteryUpdated" class="mastery-updated"></span>
+    <button id="masteryRefreshBtn" class="btn btn-ghost btn-small" title="Refresh now (normally updates weekly)">↻</button>
+  </div>
+
+  <div id="rosterWidget" class="mastery-widget hidden">
+    <span class="mastery-title">Roster</span>
+    <span id="rosterTotal" class="roster-total"></span>
+    <div id="rosterChips" class="mastery-chips"></div>
+  </div>
+
+  <main id="cards" class="cards"></main>
+
+  <div id="noMatches" class="empty-state hidden">
+    <p>No accounts match your search.</p>
+  </div>
+
+  <div id="emptyState" class="empty-state hidden">
+    <p>No accounts yet.</p>
+    <button class="btn btn-primary" id="addFirstBtn">+ Add your first account</button>
+  </div>
+
+  <!-- ---------- Add / Edit account modal ---------- -->
+  <div id="accountModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="accountModalTitle">Add account</h2>
+      <label>Type
+        <select id="fieldLabel">
+          <option value="Smurf">Smurf</option>
+          <option value="Main">Main</option>
+        </select>
+      </label>
+      <label>Riot ID <span class="hint">GameName#TAG</span>
+        <input type="text" id="fieldRiotId" placeholder="Faker#KR1" />
+      </label>
+      <label>Region
+        <select id="fieldRegion"></select>
+      </label>
+      <label>Email <span class="hint">optional, for your reference</span>
+        <input type="email" id="fieldEmail" placeholder="you@example.com" />
+      </label>
+      <label>Riot Account ID <span class="hint">login username — different from IGN</span>
+        <input type="text" id="fieldLoginUsername" placeholder="account login name" />
+      </label>
+      <label>Goal rank <span class="hint">optional — shows a progress bar on the card</span>
+        <div class="goal-fields">
+          <select id="fieldGoalTier">
+            <option value="">No goal</option>
+            <option value="IRON">Iron</option>
+            <option value="BRONZE">Bronze</option>
+            <option value="SILVER">Silver</option>
+            <option value="GOLD">Gold</option>
+            <option value="PLATINUM">Platinum</option>
+            <option value="EMERALD">Emerald</option>
+            <option value="DIAMOND">Diamond</option>
+            <option value="MASTER">Master</option>
+            <option value="GRANDMASTER">Grandmaster</option>
+            <option value="CHALLENGER">Challenger</option>
+          </select>
+          <select id="fieldGoalDivision">
+            <option value="IV">IV</option>
+            <option value="III">III</option>
+            <option value="II">II</option>
+            <option value="I">I</option>
+          </select>
+        </div>
+      </label>
+      <label>Notes
+        <textarea id="fieldNotes" rows="3" placeholder="Anything you want to remember about this account…"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="accountCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="accountSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Settings modal ---------- -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Settings</h2>
+      <label>Riot API key
+        <input type="password" id="fieldApiKey" placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+      </label>
+      <p class="hint">
+        Development keys expire every 24 hours. Get a fresh one at
+        <a href="#" id="devPortalLink">developer.riotgames.com</a> and paste it here each day.
+      </p>
+      <label>Default region for new accounts
+        <select id="fieldDefaultRegion"></select>
+      </label>
+      <label>Data
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="exportBackupBtn">⭳ Backup accounts</button>
+          <button class="btn btn-ghost" id="importBackupBtn">⭱ Restore from backup</button>
+        </div>
+        <span class="hint">Backs up labels, notes, email, and login usernames — not rank/game data, which refetches from Riot anyway.</span>
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="openAutoBackupBtn">📂 Open auto-backup folder</button>
+        </div>
+        <span class="hint">A backup also saves automatically once a day, keeping the last 7 — no action needed.</span>
+      </label>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="settingsCancelBtn">Close</button>
+        <button class="btn btn-primary" id="settingsSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Undo-delete toast ---------- -->
+  <div id="undoToast" class="undo-toast hidden">
+    <span id="undoToastText"></span>
+    <button class="btn btn-primary btn-small" id="undoToastBtn">Undo</button>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

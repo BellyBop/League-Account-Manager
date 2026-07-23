@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+out/
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor settings
+.vscode/
+.idea/
+
+# Env / secrets
+.env
+.env.*
+
+# Manual account-backup exports (contain real account credentials)
+league-acc-manager-backup-*.json

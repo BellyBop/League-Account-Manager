@@ -1,0 +1,475 @@
+:root {
+  --bg: #0a0e14;
+  --bg-panel: #121826;
+  --bg-panel-2: #182130;
+  --border: #26324a;
+  --text: #e6ebf5;
+  --text-dim: #8b97ad;
+  --gold: #c8aa6e;
+  --gold-bright: #f0e6d2;
+  --blue: #0ac8e6;
+  --win: #2fce7c;
+  --loss: #e0475a;
+  --danger: #e0475a;
+  --radius: 12px;
+  font-size: 15px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, #14203a 0%, var(--bg) 60%);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+/* ---------- Top bar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: rgba(10, 14, 20, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { color: var(--gold); font-size: 22px; }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: 0.5px; color: var(--gold-bright); font-weight: 600; }
+.topbar-actions { display: flex; gap: 10px; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--gold); color: #10131a; font-weight: 600; }
+.btn-primary:hover { background: var(--gold-bright); }
+.btn-ghost { background: var(--bg-panel-2); color: var(--text); border-color: var(--border); }
+.btn-ghost:hover { border-color: var(--gold); color: var(--gold-bright); }
+.btn-danger { background: transparent; color: var(--danger); border-color: transparent; }
+.btn-danger:hover { color: #fff; background: var(--danger); }
+.btn-small { padding: 5px 10px; font-size: 13px; }
+
+/* ---------- Key warning ---------- */
+.key-warning {
+  margin: 16px 24px 0;
+  padding: 12px 16px;
+  background: rgba(224, 71, 90, 0.12);
+  border: 1px solid var(--loss);
+  border-radius: 10px;
+  color: #ffd9de;
+  font-size: 14px;
+}
+.key-warning a { color: var(--gold-bright); }
+
+/* ---------- Toolbar (search / filter) ---------- */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px 0;
+}
+.search-input, .filter-select {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+.search-input { flex: 1; min-width: 0; }
+.search-input:focus, .filter-select:focus { outline: none; border-color: var(--gold); }
+
+/* ---------- Active account widget ---------- */
+.active-account-widget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 24px 0;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--win);
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: default;
+}
+.active-account-widget.clickable { cursor: pointer; }
+.active-account-widget.clickable:hover { border-color: var(--gold); }
+.active-account-widget.offline { border-color: var(--border); }
+.active-account-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--win);
+  object-fit: cover;
+}
+.active-account-widget.offline .active-account-icon { border-color: var(--border); }
+.active-account-info { display: flex; flex-direction: column; gap: 1px; }
+.active-account-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.active-account-widget:not(.offline) .active-account-title { color: var(--win); }
+.active-account-name { color: var(--gold-bright); font-weight: 600; }
+.active-account-widget.offline .active-account-name { color: var(--text-dim); font-weight: 400; }
+
+/* ---------- Mastery widget ---------- */
+.mastery-widget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 24px 0;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.mastery-title { color: var(--gold-bright); font-weight: 600; }
+.mastery-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.mastery-chip {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: var(--text);
+}
+.mastery-updated { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+.roster-total { color: var(--text-dim); font-size: 12px; }
+
+/* Roster chips reuse the .tier-XXX accent rules defined below (near .rank-badge)
+   for their border-left-color and .tier text color, so tier colors stay in sync. */
+.roster-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: var(--text);
+}
+.roster-chip .tier { font-weight: 700; }
+
+/* ---------- Solo Today badge (W/L + Net LP) — same box as the rank badges ---------- */
+.wl-badge { justify-content: center; }
+.wl-big { font-size: 22px; font-weight: 800; letter-spacing: 0.3px; }
+.wl-big .w { color: var(--win); }
+.wl-big .l { color: var(--loss); }
+.wl-big.wl-empty { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+.lp-sub { font-size: 11px; font-weight: 600; color: var(--text-dim); }
+.lp-sub.gain { color: var(--win); }
+.lp-sub.drop { color: var(--loss); }
+.lp-sub.lp-empty { font-weight: 400; }
+
+/* ---------- Settings: data actions ---------- */
+.settings-data-actions { display: flex; gap: 10px; }
+
+/* ---------- Account goal ---------- */
+.goal-fields { display: flex; gap: 8px; }
+.goal-fields select { flex: 1; }
+.goal-block { display: flex; flex-direction: column; gap: 4px; }
+.goal-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
+.goal-label .goal-name { color: var(--text); }
+.goal-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.goal-bar-fill { height: 100%; background: var(--gold); transition: width 0.3s ease; }
+.goal-block.reached .goal-bar-fill { background: var(--win); }
+.goal-block.reached .goal-label .goal-status { color: var(--win); }
+
+.last-lp { font-size: 12px; color: var(--text-dim); }
+.last-lp.win { color: var(--win); }
+.last-lp.loss { color: var(--loss); }
+
+/* ---------- Drag to reorder ---------- */
+.drag-handle {
+  cursor: grab;
+  color: var(--text-dim);
+  font-size: 16px;
+  padding: 0 2px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.drag-handle:active { cursor: grabbing; }
+.card.dragging { opacity: 0.5; }
+.card.drag-over { outline: 2px dashed var(--gold); outline-offset: 2px; }
+.card.jump-highlight { outline: 2px solid var(--win); outline-offset: 2px; transition: outline-color 0.3s ease; }
+
+/* ---------- Cards grid ---------- */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+  gap: 20px;
+  padding: 24px;
+}
+
+.card {
+  background: linear-gradient(180deg, var(--bg-panel) 0%, #0e131e 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.card.favorite { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.fav-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+  color: var(--gold);
+}
+.profile-icon {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: var(--bg-panel-2);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.card-identity { flex: 1; min-width: 0; }
+.card-label {
+  display: inline-block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #10131a;
+  background: var(--gold);
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.card-ign {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gold-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.card-ign:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.card-ign.copied { color: var(--win); }
+.card-ign .tag { color: var(--text-dim); font-weight: 400; }
+.card-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.card-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; opacity: 0.8; }
+
+.card-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ---------- Rank ---------- */
+.rank-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.rank-badge {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  min-width: 130px;
+}
+.rank-badge .queue { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+.rank-badge .tier { font-size: 15px; font-weight: 700; }
+.rank-badge .wl { font-size: 11px; color: var(--text-dim); }
+
+/* Tier accent colours */
+.tier-IRON        { border-left-color: #7a7069; } .tier-IRON .tier { color: #b7ada4; }
+.tier-BRONZE      { border-left-color: #a5622e; } .tier-BRONZE .tier { color: #cd7f43; }
+.tier-SILVER      { border-left-color: #9aa9b3; } .tier-SILVER .tier { color: #c3d0d8; }
+.tier-GOLD        { border-left-color: #e0b64b; } .tier-GOLD .tier { color: #f2cf6b; }
+.tier-PLATINUM    { border-left-color: #4ca6a3; } .tier-PLATINUM .tier { color: #6fd3cf; }
+.tier-EMERALD     { border-left-color: #37a869; } .tier-EMERALD .tier { color: #52d68c; }
+.tier-DIAMOND     { border-left-color: #6b8fe0; } .tier-DIAMOND .tier { color: #8fb0ff; }
+.tier-MASTER      { border-left-color: #b558d6; } .tier-MASTER .tier { color: #d07cf0; }
+.tier-GRANDMASTER { border-left-color: #d64b4b; } .tier-GRANDMASTER .tier { color: #f06b6b; }
+.tier-CHALLENGER  { border-left-color: #4ad2f0; } .tier-CHALLENGER .tier { color: #7ce4ff; }
+.tier-UNRANKED    { border-left-color: var(--border); } .tier-UNRANKED .tier { color: var(--text-dim); }
+
+/* ---------- Last 5 games ---------- */
+.games-block .section-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim); margin-bottom: 2px;
+}
+.games-hint { font-size: 11px; color: var(--text-dim); opacity: 0.75; margin-bottom: 8px; }
+.games-row { display: flex; gap: 10px; }
+.game {
+  position: relative;
+  width: 60px; height: 60px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 3px solid var(--border);
+  background: var(--bg-panel-2);
+}
+.game.win { border-color: var(--win); box-shadow: 0 0 10px rgba(47, 206, 124, 0.35); }
+.game.loss { border-color: var(--loss); box-shadow: 0 0 10px rgba(224, 71, 90, 0.35); }
+/* Games that don't (or can't yet) count toward Solo LP Today — a different
+   queue, a remake, or from before today's tracking baseline — get a dimmed,
+   neutral border instead of win/loss coloring, plus a small corner badge. */
+.game.other-queue, .game.remake { border-color: var(--border); opacity: 0.6; }
+.game img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.game .queue-badge {
+  position: absolute; top: 2px; right: 2px;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.5px;
+  background: rgba(0, 0, 0, 0.75); color: var(--gold-bright);
+  border-radius: 3px; padding: 1px 3px;
+}
+.game .kda {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  font-size: 9px; text-align: center;
+  background: rgba(0,0,0,0.72); color: #fff;
+  padding: 1px 0;
+}
+.games-empty { font-size: 13px; color: var(--text-dim); }
+
+/* ---------- Notes ---------- */
+.notes-block textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+.notes-block textarea:focus { outline: none; border-color: var(--gold); }
+.notes-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.notes-saved { font-size: 12px; color: var(--win); opacity: 0; transition: opacity 0.2s; }
+.notes-saved.show { opacity: 1; }
+
+.card-error { font-size: 13px; color: var(--loss); }
+.card-loading { font-size: 13px; color: var(--text-dim); }
+
+/* ---------- Empty state ---------- */
+.empty-state {
+  text-align: center;
+  padding: 80px 24px;
+  color: var(--text-dim);
+}
+.empty-state p { font-size: 16px; margin-bottom: 16px; }
+
+/* ---------- Modals ---------- */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(4, 6, 10, 0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(3px);
+}
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 440px; max-width: 92vw;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.modal h2 { margin: 0 0 4px; color: var(--gold-bright); font-size: 20px; }
+.modal label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.modal input, .modal select, .modal textarea {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 14px;
+}
+.modal input:focus, .modal select:focus, .modal textarea:focus { outline: none; border-color: var(--gold); }
+.modal .hint { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+.modal p.hint { margin: -6px 0 0; }
+.modal a { color: var(--gold); }
+
+/* ---------- Undo-delete toast ---------- */
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 10px 18px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  font-size: 13px;
+}
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+/* ---------- Compact view ---------- */
+body.compact .cards { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; padding: 16px 24px; }
+body.compact .card { padding: 12px; gap: 8px; }
+
+/* The header row was cramming drag-handle/star/icon/identity/5 action buttons
+   into one line with nothing set to truncate, squeezing the name to nothing.
+   Wrap the actions onto their own line instead of fighting identity for room. */
+body.compact .card-head { flex-wrap: wrap; gap: 8px; row-gap: 4px; }
+body.compact .card-head-actions { flex-basis: 100%; justify-content: flex-end; }
+body.compact .card-head-actions .btn-small { padding: 3px 7px; font-size: 12px; }
+
+body.compact .profile-icon { width: 36px; height: 36px; }
+body.compact .card-ign { font-size: 14px; }
+body.compact .card-sub {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Login/email are secondary detail — dropped in compact mode to save space;
+   still visible in wide view or by opening ✎ Edit. */
+body.compact .card-meta { display: none; }
+
+body.compact .rank-row { gap: 6px; }
+body.compact .rank-badge { padding: 5px 8px; min-width: 0; flex: 1; gap: 1px; }
+body.compact .rank-badge .queue { font-size: 9px; }
+body.compact .rank-badge .tier { font-size: 12px; }
+body.compact .rank-badge .wl { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.compact .wl-big { font-size: 15px; }
+body.compact .wl-big.wl-empty { font-size: 10px; }
+body.compact .lp-sub { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+body.compact .goal-label { font-size: 11px; }
+body.compact .goal-bar { height: 4px; }
+
+body.compact .games-row { gap: 6px; }
+body.compact .game { width: 38px; height: 38px; border-width: 2px; border-radius: 6px; }
+body.compact .game .kda { font-size: 8px; }
+body.compact .games-block .section-title, body.compact .notes-block .section-title { margin-bottom: 4px; }
+
+body.compact .notes-block textarea { min-height: 32px; font-size: 12px; padding: 6px 8px; }
+body.compact .notes-row { margin-top: 4px; }
