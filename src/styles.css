@@ -237,6 +237,8 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 .fav-btn {
   background: none;
@@ -256,7 +258,7 @@ body {
   object-fit: cover;
   flex-shrink: 0;
 }
-.card-identity { flex: 1; min-width: 0; }
+.card-identity { flex: 1; min-width: 160px; }
 .card-label {
   display: inline-block;
   font-size: 11px;
@@ -411,6 +413,8 @@ body {
 .modal .hint { font-size: 11px; color: var(--text-dim); font-weight: 400; }
 .modal p.hint { margin: -6px 0 0; }
 .modal a { color: var(--gold); }
+.modal label.checkbox-row { flex-direction: row; align-items: center; gap: 8px; }
+.modal label.checkbox-row input { width: auto; padding: 0; }
 
 /* ---------- Undo-delete toast ---------- */
 .undo-toast {

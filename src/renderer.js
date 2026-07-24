@@ -261,13 +261,27 @@ function buildCard(account) {
   editBtn.title = 'Edit';
   const delBtn = button('🗑', 'btn btn-danger btn-small', () => deleteAccount(account.id));
   delBtn.title = 'Delete';
-  headActions.append(opggBtn, signInBtn, refreshBtn, editBtn, delBtn);
+  headActions.append(opggBtn, signInBtn);
+  // Only shown once a password's actually saved for this account — nothing
+  // to copy otherwise. Paste username (🔑 above), tab to the password
+  // field, click this.
+  if (account.hasPassword) {
+    const pwBtn = button('🔒', 'btn btn-ghost btn-small', (e) => copyAccountPassword(account.id, e.currentTarget));
+    pwBtn.title = 'Copy saved password';
+    headActions.appendChild(pwBtn);
+  }
+  headActions.append(refreshBtn, editBtn, delBtn);
   head.appendChild(headActions);
 
   card.appendChild(head);
 
   // ---- Body: either error, loading, or the data ----
-  if (account._error) {
+  // A missing/expired key already gets one unmissable banner at the top of
+  // the app (#keyWarning) — repeating the same sentence on every single
+  // card just to say the same thing N times adds noise, not information.
+  // Every other error is still genuinely per-account, so those stay.
+  const isKeyError = account._error === 'EXPIRED_KEY' || account._error === 'NO_KEY';
+  if (account._error && !isKeyError) {
     const errEl = document.createElement('div');
     errEl.className = 'card-error';
     errEl.textContent = friendlyError(account._error);
@@ -648,6 +662,24 @@ async function signInAccount(id, btn) {
   }
 }
 
+// Decryption and the clipboard write both happen in the main process (see
+// accounts:copyPassword) — the plaintext password is never sent down to
+// this renderer at all, it just lands directly on the OS clipboard for a
+// manual paste into the Riot Client's password field.
+async function copyAccountPassword(id, btn) {
+  const result = await window.api.copyAccountPassword(id);
+
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = result.ok ? '✓' : '⚠';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
+
+  if (!result.ok && result.error !== 'NO_PASSWORD') {
+    alert(`Couldn't copy the saved password: ${result.error}`);
+  }
+}
+
 function renderMastery() {
   const widget = el('masteryWidget');
   // Keep the widget (and its ↻ button) visible whenever there's an account to
@@ -874,6 +906,14 @@ function openAccountModal(id) {
   const isEdit = Boolean(id);
   el('accountModalTitle').textContent = isEdit ? 'Edit account' : 'Add account';
 
+  // The password field always opens blank, whether adding or editing — a
+  // saved password is never decrypted just to redisplay it. Leaving it
+  // blank on save means "keep whatever's already saved"; the "remove saved
+  // password" checkbox is the only way to clear one, and only makes sense
+  // (and only shows) when editing an account that actually has one.
+  el('fieldPassword').value = '';
+  el('fieldRemovePassword').checked = false;
+
   if (isEdit) {
     const a = accounts.find((x) => x.id === id);
     el('fieldLabel').value = a.label || 'Smurf';
@@ -884,6 +924,7 @@ function openAccountModal(id) {
     el('fieldGoalTier').value = (a.goal && a.goal.tier) || '';
     el('fieldGoalDivision').value = (a.goal && a.goal.rank) || 'IV';
     el('fieldNotes').value = a.notes || '';
+    el('fieldRemovePasswordRow').classList.toggle('hidden', !a.hasPassword);
   } else {
     el('fieldLabel').value = 'Smurf';
     el('fieldRiotId').value = '';
@@ -893,6 +934,7 @@ function openAccountModal(id) {
     el('fieldGoalTier').value = '';
     el('fieldGoalDivision').value = 'IV';
     el('fieldNotes').value = '';
+    el('fieldRemovePasswordRow').classList.add('hidden');
   }
   updateGoalDivisionField();
   el('accountModal').classList.remove('hidden');
@@ -908,6 +950,7 @@ function updateGoalDivisionField() {
 
 function closeAccountModal() {
   el('accountModal').classList.add('hidden');
+  el('fieldPassword').value = '';
   editingId = null;
 }
 
@@ -922,6 +965,8 @@ async function saveAccountModal() {
   const region = el('fieldRegion').value;
   const email = el('fieldEmail').value.trim();
   const loginUsername = el('fieldLoginUsername').value.trim();
+  const password = el('fieldPassword').value;
+  const removePassword = el('fieldRemovePassword').checked;
   const goalTier = el('fieldGoalTier').value;
   const goalDivision = el('fieldGoalDivision').value;
   const notes = el('fieldNotes').value;
@@ -943,6 +988,16 @@ async function saveAccountModal() {
   } else {
     accounts = await window.api.addAccount({ label, riotId, region, email, loginUsername, notes });
     targetId = accounts[accounts.length - 1].id;
+  }
+
+  // A typed password always wins over the checkbox — blank means "leave
+  // whatever's saved alone", so setAccountPassword only needs to run when
+  // there's actually a change to make.
+  if (password || removePassword) {
+    const pwResult = await window.api.setAccountPassword(targetId, password);
+    if (!pwResult.ok) {
+      alert(`Everything else saved, but the password didn't: ${pwResult.error}`);
+    }
   }
 
   if (goalTier) {

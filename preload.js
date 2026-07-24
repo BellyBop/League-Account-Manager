@@ -21,6 +21,8 @@ const channels = {
   ACCOUNTS_REORDER: 'accounts:reorder',
   ACCOUNTS_SET_GOAL: 'accounts:setGoal',
   ACCOUNTS_CLEAR_GOAL: 'accounts:clearGoal',
+  ACCOUNTS_SET_PASSWORD: 'accounts:setPassword',
+  ACCOUNTS_COPY_PASSWORD: 'accounts:copyPassword',
 
   RIOT_FETCH: 'riot:fetch',
   RIOT_REGIONS: 'riot:regions',
@@ -54,6 +56,8 @@ contextBridge.exposeInMainWorld('api', {
   reorderAccounts: (orderedIds) => ipcRenderer.invoke(channels.ACCOUNTS_REORDER, orderedIds),
   setAccountGoal: (id, tier, division) => ipcRenderer.invoke(channels.ACCOUNTS_SET_GOAL, { id, tier, division }),
   clearAccountGoal: (id) => ipcRenderer.invoke(channels.ACCOUNTS_CLEAR_GOAL, id),
+  setAccountPassword: (id, password) => ipcRenderer.invoke(channels.ACCOUNTS_SET_PASSWORD, { id, password }),
+  copyAccountPassword: (id) => ipcRenderer.invoke(channels.ACCOUNTS_COPY_PASSWORD, id),
 
   fetchAccountData: (id) => ipcRenderer.invoke(channels.RIOT_FETCH, { id }),
   getRegions: () => ipcRenderer.invoke(channels.RIOT_REGIONS),

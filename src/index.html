@@ -103,6 +103,13 @@
       <label>Riot Account ID <span class="hint">login username — different from IGN</span>
         <input type="text" id="fieldLoginUsername" placeholder="account login name" />
       </label>
+      <label>Password <span class="hint">optional — encrypted locally, never leaves this PC</span>
+        <input type="password" id="fieldPassword" placeholder="leave blank to keep unchanged" autocomplete="new-password" />
+      </label>
+      <label id="fieldRemovePasswordRow" class="checkbox-row hidden">
+        <input type="checkbox" id="fieldRemovePassword" />
+        Remove saved password
+      </label>
       <label>Goal rank <span class="hint">optional — shows a progress bar on the card</span>
         <div class="goal-fields">
           <select id="fieldGoalTier">

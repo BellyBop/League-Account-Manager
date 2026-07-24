@@ -17,6 +17,8 @@ module.exports = {
   ACCOUNTS_REORDER: 'accounts:reorder',
   ACCOUNTS_SET_GOAL: 'accounts:setGoal',
   ACCOUNTS_CLEAR_GOAL: 'accounts:clearGoal',
+  ACCOUNTS_SET_PASSWORD: 'accounts:setPassword',
+  ACCOUNTS_COPY_PASSWORD: 'accounts:copyPassword',
 
   RIOT_FETCH: 'riot:fetch',
   RIOT_REGIONS: 'riot:regions',

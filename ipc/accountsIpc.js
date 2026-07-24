@@ -1,22 +1,29 @@
 'use strict';
 
-const { ipcMain } = require('electron');
+const { ipcMain, clipboard } = require('electron');
 const channels = require('../ipcChannels');
 const { getSettings, getAccounts, saveAccounts } = require('../lib/store');
 const { setAccountGoal, clearAccountGoal, computeGoalProgress } = require('../lib/goals');
 const { computeNetLpToday } = require('../lib/lpLog');
+const { encryptPassword, decryptPassword, sanitizeAccount } = require('../lib/accountSecrets');
+
+const CLIPBOARD_CLEAR_DELAY_MS = 30 * 1000;
 
 function registerAccountsIpc() {
   // netLpToday is otherwise only recomputed inside recordLpDelta, i.e. when a
   // game just ended — so on a day with no games yet it would keep showing
   // yesterday's stale total instead of resetting. Recompute it fresh from
   // the log (which is already date-filtered) on every fetch instead.
+  //
+  // sanitizeAccount strips each account's encrypted password blob before it
+  // reaches the renderer — every handler below that returns account data
+  // does the same, so the ciphertext never leaves the main process.
   ipcMain.handle(channels.ACCOUNTS_GET, () => {
     const accounts = getAccounts();
     for (const account of accounts) {
       account.netLpToday = computeNetLpToday(account);
     }
-    return accounts;
+    return accounts.map(sanitizeAccount);
   });
 
   ipcMain.handle(channels.ACCOUNTS_ADD, (_e, account) => {
@@ -33,7 +40,7 @@ function registerAccountsIpc() {
       cache: null,
     });
     saveAccounts(accounts);
-    return accounts;
+    return accounts.map(sanitizeAccount);
   });
 
   ipcMain.handle(channels.ACCOUNTS_UPDATE, (_e, { id, changes }) => {
@@ -43,13 +50,13 @@ function registerAccountsIpc() {
       accounts[idx] = { ...accounts[idx], ...changes };
       saveAccounts(accounts);
     }
-    return accounts;
+    return accounts.map(sanitizeAccount);
   });
 
   ipcMain.handle(channels.ACCOUNTS_DELETE, (_e, id) => {
     const accounts = getAccounts().filter((a) => a.id !== id);
     saveAccounts(accounts);
-    return accounts;
+    return accounts.map(sanitizeAccount);
   });
 
   // Undo for the above — re-inserts the exact account object (same id, cache,
@@ -65,7 +72,7 @@ function registerAccountsIpc() {
       }
       saveAccounts(accounts);
     }
-    return accounts;
+    return accounts.map(sanitizeAccount);
   });
 
   // Persists a manual drag-to-reorder — orderedIds is every account id in its
@@ -83,7 +90,7 @@ function registerAccountsIpc() {
     }
     reordered.push(...byId.values());
     saveAccounts(reordered);
-    return reordered;
+    return reordered.map(sanitizeAccount);
   });
 
   ipcMain.handle(channels.ACCOUNTS_SET_GOAL, (_e, { id, tier, division }) => {
@@ -105,6 +112,54 @@ function registerAccountsIpc() {
     clearAccountGoal(accounts[idx]);
     saveAccounts(accounts);
     return { ok: true };
+  });
+
+  // Kept separate from accounts:update rather than folded into its generic
+  // `changes` merge — that merge spreads whatever it's given straight onto
+  // the saved account, so a stray plaintext `password` key would land in
+  // accounts.json verbatim. Routing it through its own encrypt step here is
+  // what keeps that from ever happening. An empty/missing password clears
+  // whatever was previously saved instead of touching nothing, so there's a
+  // way to remove one from the UI.
+  ipcMain.handle(channels.ACCOUNTS_SET_PASSWORD, (_e, { id, password }) => {
+    const accounts = getAccounts();
+    const idx = accounts.findIndex((a) => a.id === id);
+    if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
+
+    if (password) {
+      try {
+        accounts[idx].encryptedPassword = encryptPassword(password);
+      } catch (e) {
+        return { ok: false, error: e.message || 'ENCRYPTION_FAILED' };
+      }
+    } else {
+      delete accounts[idx].encryptedPassword;
+    }
+    saveAccounts(accounts);
+    return { ok: true };
+  });
+
+  // Decrypts and writes straight to the OS clipboard from here in the main
+  // process — the plaintext password never needs to cross into the
+  // renderer at all, let alone get typed or simulated into the Riot Client.
+  ipcMain.handle(channels.ACCOUNTS_COPY_PASSWORD, (_e, id) => {
+    const accounts = getAccounts();
+    const account = accounts.find((a) => a.id === id);
+    if (!account || !account.encryptedPassword) return { ok: false, error: 'NO_PASSWORD' };
+
+    try {
+      const plaintext = decryptPassword(account.encryptedPassword);
+      clipboard.writeText(plaintext);
+      // Auto-clear after a delay, same convention as Bitwarden/1Password —
+      // only if the clipboard still holds exactly what was just written, so
+      // this can't clobber something else the user copied in the meantime.
+      setTimeout(() => {
+        if (clipboard.readText() === plaintext) clipboard.clear();
+      }, CLIPBOARD_CLEAR_DELAY_MS);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: 'DECRYPT_FAILED' };
+    }
   });
 }
 

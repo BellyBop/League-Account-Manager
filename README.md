@@ -44,6 +44,12 @@ data automatically; use **↻** to refresh.
 
 - **Sign-in:** the **🔑** button copies that account's login username and launches the
   Riot Client — Riot has no public login API, so pasting your password is still manual.
+  Optionally save a password per account (Edit → Password) and a **🔒** button appears
+  to copy it too — it's encrypted at rest via the OS (Windows DPAPI/macOS Keychain/Linux
+  libsecret, never a key stored in this app), decrypted straight to the clipboard from
+  the main process, and never auto-typed or submitted into the client for you. The
+  clipboard clears itself ~30s later, and saved passwords are excluded from backups
+  (they're tied to this machine's OS account, so they wouldn't decrypt elsewhere anyway).
 - **Backups:** **⚙ Settings → Backup accounts** exports your labels/notes/emails/logins
   (not rank data, which is refetched from Riot) to a JSON file. Automatic daily backups
   also go to `<userData>/auto-backups` (last 7 kept).
