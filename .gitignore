@@ -13,6 +13,12 @@ desktop.ini
 .vscode/
 .idea/
 
+# Local Claude Code tooling (skills, agent state) — not part of the app
+.claude/
+.agents/
+agent/
+skills-lock.json
+
 # Env / secrets
 .env
 .env.*

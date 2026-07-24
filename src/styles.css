@@ -125,6 +125,7 @@ body {
 .active-account-widget:not(.offline) .active-account-title { color: var(--win); }
 .active-account-name { color: var(--gold-bright); font-weight: 600; }
 .active-account-widget.offline .active-account-name { color: var(--text-dim); font-weight: 400; }
+.active-account-widget #activeAccountSignOutBtn { margin-left: auto; flex-shrink: 0; }
 
 /* ---------- Mastery widget ---------- */
 .mastery-widget {

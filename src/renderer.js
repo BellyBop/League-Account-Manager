@@ -802,12 +802,14 @@ function renderActiveAccount() {
     icon.classList.add('hidden');
     nameEl.textContent = 'Not signed in on this PC';
     widget.onclick = null;
+    el('activeAccountSignOutBtn').classList.add('hidden');
     return;
   }
 
   widget.classList.remove('offline');
   icon.classList.toggle('hidden', !status.profileIcon);
   if (status.profileIcon) icon.src = status.profileIcon;
+  el('activeAccountSignOutBtn').classList.remove('hidden');
 
   nameEl.textContent = status.matchedLabel ? `${status.ign} — ${status.matchedLabel}` : `${status.ign} (not tracked)`;
 
@@ -826,6 +828,43 @@ function jumpToCard(accountId) {
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   card.classList.add('jump-highlight');
   setTimeout(() => card.classList.remove('jump-highlight'), 1500);
+}
+
+// Ends the current sign-in session via the Riot Client's own local API (see
+// riotclient:signOut / endRiotClientSession in lib/riotClient.js) — a real
+// logout, not a process close standing in for one. Verified live: the
+// running client reacts on its own and drops straight to its login screen,
+// no relaunch needed.
+async function signOutActiveAccount(e) {
+  e.stopPropagation(); // the widget itself is also a click target (jumps to card)
+
+  const ign = activeAccountStatus && activeAccountStatus.ign;
+  const confirmed = confirm(
+    `Sign out${ign ? ` of ${ign}` : ''}? If you're currently in champion select or a match, ` +
+    'this will disconnect you and may count as leaving.'
+  );
+  if (!confirmed) return;
+
+  const btn = el('activeAccountSignOutBtn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  // Worst case (League still closing + a few sign-out retries) can run a
+  // good few seconds — spell it out rather than leaving a bare "…" up long
+  // enough to look stuck.
+  btn.textContent = 'Signing out…';
+
+  const result = await window.api.signOutRiotClient();
+  if (!result.ok) alert(`Couldn't sign out: ${result.error}`);
+
+  // Give the client a moment to actually react to the session ending
+  // before polling status — the normal 15s interval would eventually catch
+  // it too, but this feels instant instead of leaving a stale "signed in"
+  // state up for a while.
+  setTimeout(async () => {
+    await refreshActiveAccount();
+    btn.disabled = false;
+    btn.textContent = original;
+  }, 2000);
 }
 
 async function refreshMastery() {
@@ -1079,6 +1118,7 @@ function wireEvents() {
   el('addFirstBtn').addEventListener('click', () => openAccountModal(null));
   el('refreshAllBtn').addEventListener('click', refreshAll);
   el('settingsBtn').addEventListener('click', openSettings);
+  el('activeAccountSignOutBtn').addEventListener('click', signOutActiveAccount);
   el('densityToggleBtn').addEventListener('click', toggleDensity);
 
   el('accountCancelBtn').addEventListener('click', closeAccountModal);

@@ -31,6 +31,7 @@ const channels = {
 
   CLIPBOARD_WRITE: 'clipboard:write',
   RIOTCLIENT_LAUNCH: 'riotclient:launch',
+  RIOTCLIENT_SIGN_OUT: 'riotclient:signOut',
 
   MASTERY_GET: 'mastery:get',
   MASTERY_REFRESH: 'mastery:refresh',
@@ -66,6 +67,7 @@ contextBridge.exposeInMainWorld('api', {
 
   copyToClipboard: (text) => ipcRenderer.invoke(channels.CLIPBOARD_WRITE, text),
   launchRiotClient: () => ipcRenderer.invoke(channels.RIOTCLIENT_LAUNCH),
+  signOutRiotClient: () => ipcRenderer.invoke(channels.RIOTCLIENT_SIGN_OUT),
 
   getMastery: () => ipcRenderer.invoke(channels.MASTERY_GET),
   refreshMastery: () => ipcRenderer.invoke(channels.MASTERY_REFRESH),

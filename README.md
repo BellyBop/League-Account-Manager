@@ -50,6 +50,13 @@ data automatically; use **↻** to refresh.
   the main process, and never auto-typed or submitted into the client for you. The
   clipboard clears itself ~30s later, and saved passwords are excluded from backups
   (they're tied to this machine's OS account, so they wouldn't decrypt elsewhere anyway).
+- **Sign out:** the active-account bar gets a **Sign out** button whenever someone's
+  signed in on this PC. It's a real logout via the Riot Client's own local API (not a
+  process kill) — the client reacts on its own and drops to its login screen, no
+  relaunch needed, so you can switch straight to a different account. Riot Client
+  refuses to sign out while League is still open, so this closes League first
+  (gracefully, via its own shutdown command) — if you're in champion select or a
+  match when you click it, that disconnects you and may count as leaving.
 - **Backups:** **⚙ Settings → Backup accounts** exports your labels/notes/emails/logins
   (not rank data, which is refetched from Riot) to a JSON file. Automatic daily backups
   also go to `<userData>/auto-backups` (last 7 kept).

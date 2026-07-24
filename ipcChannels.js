@@ -27,6 +27,7 @@ module.exports = {
 
   CLIPBOARD_WRITE: 'clipboard:write',
   RIOTCLIENT_LAUNCH: 'riotclient:launch',
+  RIOTCLIENT_SIGN_OUT: 'riotclient:signOut',
 
   MASTERY_GET: 'mastery:get',
   MASTERY_REFRESH: 'mastery:refresh',
