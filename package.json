@@ -6,9 +6,32 @@
   "author": "jnathanbotha",
   "license": "MIT",
   "scripts": {
-    "start": "set ELECTRON_RUN_AS_NODE=&& electron ."
+    "start": "set ELECTRON_RUN_AS_NODE=&& electron .",
+    "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "dev.bellybop.league-acc-manager",
+    "productName": "League Account Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ipcChannels.js",
+      "riot.js",
+      "ipc/**/*",
+      "lib/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }
