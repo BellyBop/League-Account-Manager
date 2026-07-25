@@ -17,12 +17,30 @@ read your public match/rank data — everything else stays on your machine.
 - **Collective mastery widget** — top 5 champions by combined mastery across all accounts
 - Search/filter by label, IGN, region, email, login, or notes
 
-## Setup
+## Install
+
+Grab the latest installer from
+**[Releases](https://github.com/BellyBop/League-Account-Manager/releases/latest)**
+(`League Account Manager Setup x.x.x.exe`), run it, and launch the app — no Node or
+npm required. Windows may show an "unrecognized app" SmartScreen prompt since the
+installer isn't code-signed; click **More info → Run anyway**.
+
+### Running from source instead
 
 ```bash
 npm install
 npm start
 ```
+
+### Building the installer yourself
+
+```bash
+npm install
+npm run dist
+```
+
+Produces `dist/League Account Manager Setup x.x.x.exe` via `electron-builder`
+(unsigned — see the SmartScreen note above).
 
 ### Add your Riot API key (required)
 
