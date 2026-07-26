@@ -4,6 +4,8 @@ A desktop app (Electron) for tracking your League of Legends **main and smurf ac
 side by side. Nothing is uploaded anywhere except requests to Riot's official API to
 read your public match/rank data — everything else stays on your machine.
 
+![Main dashboard](images/main.png)
+
 ## Features
 
 - **IGN**, profile icon, level, and **rank** (Solo/Duo + Flex, tier/division/LP/WR)
@@ -52,11 +54,15 @@ Produces `dist/League Account Manager Setup x.x.x.exe` via `electron-builder`
 > notification) shortly before yours does. For longer-lived access, apply for a
 > "Personal" key on the same portal.
 
+<img src="images/settings.png" alt="Settings modal" width="420" />
+
 ## Adding accounts
 
 Click **+ Add account** and fill in a label (Main/Smurf), Riot ID (`GameName#TAG`),
 region, and optionally email/login username/notes. The card fills in rank and match
 data automatically; use **↻** to refresh.
+
+<img src="images/addAccount.png" alt="Add account modal" width="420" />
 
 ## Good to know
 
