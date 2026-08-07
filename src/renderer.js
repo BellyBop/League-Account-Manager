@@ -79,13 +79,22 @@ function populateRegionSelect(select) {
   }
 }
 
+// Format-only check: can we tell client-side, without ever calling Riot,
+// that this key is unusable? Used to decide whether a refresh should even
+// attempt a network call.
+function keyFormatInvalid() {
+  return !settings.apiKey || !settings.apiKey.startsWith('RGAPI-');
+}
+
+// Broader check driving the top banner: also treats the key as invalid once
+// any account's refresh has actually hit a 401/403, since a dev key still
+// starts with "RGAPI-" right up until (and after) it expires ~24h in — the
+// string shape alone can't tell a live key from a dead one. Must NOT be used
+// to gate whether refreshOne attempts a fetch: that stale _error can only be
+// cleared by a fetch actually succeeding, so gating on it here would deadlock
+// every account against ever retrying once one of them has expired once.
 function keyLooksMissing() {
-  if (!settings.apiKey || !settings.apiKey.startsWith('RGAPI-')) return true;
-  // A dev key still starts with "RGAPI-" right up until (and after) it
-  // expires ~24h in — the string shape alone can't tell a live key from a
-  // dead one. Riot's own 401/403 response is the only real signal, so once
-  // any account's refresh has actually hit that, treat the key as invalid
-  // too instead of only ever flagging the format.
+  if (keyFormatInvalid()) return true;
   return accounts.some((a) => a._error === 'EXPIRED_KEY');
 }
 
@@ -610,7 +619,7 @@ function buildNotes(account) {
 async function refreshOne(id) {
   const account = accounts.find((a) => a.id === id);
   if (!account) return;
-  if (keyLooksMissing()) {
+  if (keyFormatInvalid()) {
     account._error = 'EXPIRED_KEY';
     render();
     return;
