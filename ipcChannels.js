@@ -38,4 +38,6 @@ module.exports = {
   BACKUP_OPEN_AUTO_FOLDER: 'backup:openAutoFolder',
 
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
+
+  APP_GET_VERSION: 'app:getVersion',
 };

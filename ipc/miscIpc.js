@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain, clipboard, shell } = require('electron');
+const { app, ipcMain, clipboard, shell } = require('electron');
 const { spawn } = require('child_process');
 const channels = require('../ipcChannels');
 const { findRiotClientPath, endRiotClientSession } = require('../lib/riotClient');
@@ -57,6 +57,11 @@ function registerMiscIpc() {
     }
     return result;
   });
+
+  // app.getVersion() reads package.json's "version" directly when running
+  // unpackaged (`npm start`), and the packaged app's baked-in version once
+  // built — so this always reflects whatever you actually last built/ran.
+  ipcMain.handle(channels.APP_GET_VERSION, () => app.getVersion());
 }
 
 module.exports = { registerMiscIpc };

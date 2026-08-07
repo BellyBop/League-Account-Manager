@@ -107,7 +107,7 @@ const MATCH_DETAIL_DELAY_MS = 200;
 
 /**
  * Resolves a batch of match IDs into lightweight match summaries, reusing
- * `cache` (a plain object keyed by matchId, if supplied) instead of
+ * `cache` (a plain object keyed by `${matchId}:${puuid}`, if supplied) instead of
  * re-fetching matches already known — match results never change once the
  * game ends, so anything already in the cache is a free hit. This is the
  * single source of match-detail fetching for both the "last 5 games" list
@@ -123,7 +123,13 @@ async function getMatchDetails({ apiKey, region, puuid, matchIds, cache }) {
   const results = [];
   let calledNetwork = false;
   for (const matchId of matchIds) {
-    const cached = cache && cache[matchId];
+    // Cache key includes puuid: match details (champion, K/D/A, remake) are
+    // captured from one participant's perspective, so two tracked accounts
+    // who duo'd the same match must not share a cache entry — otherwise
+    // whichever account gets fetched first "wins" and the other account's
+    // card ends up showing its duo partner's champion/KDA for that game.
+    const cacheKey = `${matchId}:${puuid}`;
+    const cached = cache && cache[cacheKey];
     if (cached) {
       results.push(cached);
       continue;
@@ -140,6 +146,7 @@ async function getMatchDetails({ apiKey, region, puuid, matchIds, cache }) {
       if (!me) continue;
       const detail = {
         matchId,
+        puuid,
         championName: me.championName,
         win: me.win,
         kills: me.kills,
@@ -155,7 +162,7 @@ async function getMatchDetails({ apiKey, region, puuid, matchIds, cache }) {
         // than are visible in the "last 5 games" list.
         remake: Boolean(me.gameEndedInEarlySurrender),
       };
-      if (cache) cache[matchId] = detail;
+      if (cache) cache[cacheKey] = detail;
       results.push(detail);
     } catch (e) {
       // Skip a single bad match rather than failing the whole lookup.
@@ -169,7 +176,7 @@ async function getMatchDetails({ apiKey, region, puuid, matchIds, cache }) {
  * @param {object} opts { apiKey, riotId, region, knownPuuid?, matchCache? }
  *   knownPuuid — if the caller already resolved this exact riotId before,
  *     passing its puuid skips the account-v1 lookup call entirely.
- *   matchCache — plain object keyed by matchId, shared with getMatchDetails
+ *   matchCache — plain object keyed by `${matchId}:${puuid}`, shared with getMatchDetails
  *     to avoid re-fetching matches already seen (see main.js).
  */
 async function fetchAccountData({ apiKey, riotId, region, knownPuuid, matchCache }) {
@@ -270,12 +277,20 @@ async function fetchAccountData({ apiKey, riotId, region, knownPuuid, matchCache
 // and caches the result for the rest of the day).
 async function fetchMatchPage({ apiKey, puuid, region, start, count, cache }) {
   const routing = REGIONS[region];
-  if (!routing) return [];
+  if (!routing) return { matches: [], requestedCount: 0 };
   const matchIds = await riotGet(
     `https://${routing.match}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?start=${start}&count=${count}`,
     apiKey
   );
-  return getMatchDetails({ apiKey, region, puuid, matchIds, cache });
+  // requestedCount (how many IDs Riot actually returned for this page) is
+  // reported separately from the resolved matches — getMatchDetails silently
+  // skips any individual match that fails to fetch (e.g. a transient 429), so
+  // the matches array can come back shorter than matchIds. Callers paginating
+  // off of this need the true page size to advance `start` correctly; using
+  // the resolved count instead would re-request the same failed match
+  // forever and could also misread a same-size failure as "end of history".
+  const matches = await getMatchDetails({ apiKey, region, puuid, matchIds, cache });
+  return { matches, requestedCount: matchIds.length };
 }
 
 // ---------------------------------------------------------------------------

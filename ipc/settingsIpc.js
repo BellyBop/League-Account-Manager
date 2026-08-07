@@ -4,6 +4,7 @@ const { ipcMain } = require('electron');
 const channels = require('../ipcChannels');
 const { getSettings, saveSettings } = require('../lib/store');
 const { resetApiKeyExpiryNotifications } = require('../lib/notifications');
+const { applyLaunchOnStartup } = require('../lib/autoLaunch');
 
 function registerSettingsIpc() {
   ipcMain.handle(channels.SETTINGS_GET, () => getSettings());
@@ -15,6 +16,9 @@ function registerSettingsIpc() {
     if (typeof settings.apiKey === 'string' && settings.apiKey !== current.apiKey) {
       merged.apiKeySavedAt = settings.apiKey ? Date.now() : null;
       resetApiKeyExpiryNotifications();
+    }
+    if (typeof settings.launchOnStartup === 'boolean' && settings.launchOnStartup !== current.launchOnStartup) {
+      applyLaunchOnStartup(settings.launchOnStartup);
     }
     saveSettings(merged);
     return merged;

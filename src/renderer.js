@@ -18,7 +18,7 @@ const noMatchesEl = el('noMatches');
 const keyWarningEl = el('keyWarning');
 
 let accounts = [];
-let settings = { apiKey: '', defaultRegion: 'oce' };
+let settings = { apiKey: '', defaultRegion: 'oce', launchOnStartup: false };
 let regions = {};
 let editingId = null; // null => adding a new account
 let mastery = null;
@@ -27,6 +27,7 @@ let filterType = '';
 let filterRank = '';
 let draggedAccountId = null;
 let activeAccountStatus = null;
+let appVersion = '';
 
 const ACTIVE_ACCOUNT_POLL_MS = 15000;
 
@@ -38,6 +39,7 @@ async function init() {
   settings = await window.api.getSettings();
   accounts = await window.api.getAccounts();
   mastery = await window.api.getMastery();
+  appVersion = await window.api.getAppVersion();
 
   populateRegionSelect(el('fieldRegion'));
   populateRegionSelect(el('fieldDefaultRegion'));
@@ -78,7 +80,13 @@ function populateRegionSelect(select) {
 }
 
 function keyLooksMissing() {
-  return !settings.apiKey || !settings.apiKey.startsWith('RGAPI-');
+  if (!settings.apiKey || !settings.apiKey.startsWith('RGAPI-')) return true;
+  // A dev key still starts with "RGAPI-" right up until (and after) it
+  // expires ~24h in — the string shape alone can't tell a live key from a
+  // dead one. Riot's own 401/403 response is the only real signal, so once
+  // any account's refresh has actually hit that, treat the key as invalid
+  // too instead of only ever flagging the format.
+  return accounts.some((a) => a._error === 'EXPIRED_KEY');
 }
 
 // ---------------------------------------------------------------------------
@@ -624,16 +632,29 @@ async function refreshOne(id) {
   render();
 }
 
+// Guards against two refreshAll() runs overlapping (e.g. the on-launch
+// refresh still working through accounts when the user hits "Refresh all" or
+// Ctrl+R) — without this, both loops fetch the same accounts concurrently,
+// which doubles up on the rate limit and races on saving accounts.json,
+// where whichever IPC call finishes last silently wins over the other.
+let refreshAllInProgress = false;
+
 async function refreshAll() {
-  render(); // show cached data immediately
-  for (const account of accounts) {
-    // Sequential to stay comfortably under the dev-key rate limit.
-    await refreshOne(account.id);
+  if (refreshAllInProgress) return;
+  refreshAllInProgress = true;
+  try {
+    render(); // show cached data immediately
+    for (const account of accounts) {
+      // Sequential to stay comfortably under the dev-key rate limit.
+      await refreshOne(account.id);
+    }
+    // One check for the whole batch (not per-account) — picks up any account
+    // that's newly known to the widget without hammering the rate limit.
+    mastery = await window.api.syncMastery();
+    renderMastery();
+  } finally {
+    refreshAllInProgress = false;
   }
-  // One check for the whole batch (not per-account) — picks up any account
-  // that's newly known to the widget without hammering the rate limit.
-  mastery = await window.api.syncMastery();
-  renderMastery();
 }
 
 async function signInAccount(id, btn) {
@@ -1054,6 +1075,8 @@ async function saveAccountModal() {
 function openSettings() {
   el('fieldApiKey').value = settings.apiKey || '';
   el('fieldDefaultRegion').value = settings.defaultRegion || 'oce';
+  el('fieldLaunchOnStartup').checked = !!settings.launchOnStartup;
+  el('settingsVersion').textContent = appVersion ? `Version ${appVersion}` : '';
   el('settingsModal').classList.remove('hidden');
   el('fieldApiKey').focus();
 }
@@ -1065,7 +1088,8 @@ function closeSettings() {
 async function saveSettings() {
   const apiKey = el('fieldApiKey').value.trim();
   const defaultRegion = el('fieldDefaultRegion').value;
-  settings = await window.api.saveSettings({ apiKey, defaultRegion });
+  const launchOnStartup = el('fieldLaunchOnStartup').checked;
+  settings = await window.api.saveSettings({ apiKey, defaultRegion, launchOnStartup });
   closeSettings();
   render();
   refreshAll();

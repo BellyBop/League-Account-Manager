@@ -1,13 +1,13 @@
 {
   "name": "league-acc-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A desktop manager for your League of Legends main and smurf accounts.",
   "main": "main.js",
   "author": "jnathanbotha",
   "license": "MIT",
   "scripts": {
     "start": "set ELECTRON_RUN_AS_NODE=&& electron .",
-    "dist": "electron-builder --win"
+    "dist": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -31,7 +31,8 @@
     ],
     "win": {
       "target": "nsis",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true,
+      "icon": "AccManageIcon.ico"
     }
   }
 }

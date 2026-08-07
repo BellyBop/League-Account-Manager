@@ -42,6 +42,8 @@ const channels = {
   BACKUP_OPEN_AUTO_FOLDER: 'backup:openAutoFolder',
 
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
+
+  APP_GET_VERSION: 'app:getVersion',
 };
 
 // Expose a small, safe API surface to the renderer. No Node access leaks.
@@ -78,4 +80,6 @@ contextBridge.exposeInMainWorld('api', {
   openAutoBackupFolder: () => ipcRenderer.invoke(channels.BACKUP_OPEN_AUTO_FOLDER),
 
   getActiveAccountStatus: () => ipcRenderer.invoke(channels.LEAGUE_CLIENT_STATUS),
+
+  getAppVersion: () => ipcRenderer.invoke(channels.APP_GET_VERSION),
 });

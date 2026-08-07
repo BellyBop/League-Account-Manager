@@ -435,6 +435,7 @@ body {
   font-size: 13px;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.settings-version { text-align: center; margin-top: -6px; }
 
 /* ---------- Compact view ---------- */
 body.compact .cards { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; padding: 16px 24px; }

@@ -15,6 +15,29 @@ const { checkApiKeyExpiry } = require('./lib/notifications');
 const { refreshMasteryIfStale } = require('./lib/mastery');
 const { runAutoBackupIfDue } = require('./lib/backup');
 const { HOUR } = require('./lib/constants');
+const { getSettings } = require('./lib/store');
+const { applyLaunchOnStartup } = require('./lib/autoLaunch');
+
+// Only one instance should ever be running. Without this, launching the app
+// again (double-clicking the shortcut while it's already open, or the OS
+// auto-starting it via "Launch on startup" on top of an instance that never
+// closed) silently spawns a second, fully independent process — same window
+// title, no visible difference, but it can't see the first instance's state
+// and any install/update done in between won't be reflected in whichever one
+// you happen to be looking at. Losing the lock means another instance beat
+// us to it, so just hand off to that one instead.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  return;
+}
+app.on('second-instance', () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -61,6 +84,11 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Re-apply on every launch so the OS-level login item stays in sync even
+  // if the user removed it some other way (e.g. Windows' Task Manager >
+  // Startup apps) without touching our Settings screen.
+  applyLaunchOnStartup(getSettings().launchOnStartup);
 
   refreshMasteryIfStale(false);
   runAutoBackupIfDue();
