@@ -26,6 +26,8 @@ const channels = {
 
   RIOT_FETCH: 'riot:fetch',
   RIOT_REGIONS: 'riot:regions',
+  RIOT_VALIDATE_KEY: 'riot:validateKey',
+  RIOT_CHAMPION_CATALOG: 'riot:championCatalog',
 
   SHELL_OPEN: 'shell:open',
 
@@ -64,6 +66,8 @@ contextBridge.exposeInMainWorld('api', {
 
   fetchAccountData: (id) => ipcRenderer.invoke(channels.RIOT_FETCH, { id }),
   getRegions: () => ipcRenderer.invoke(channels.RIOT_REGIONS),
+  validateApiKey: () => ipcRenderer.invoke(channels.RIOT_VALIDATE_KEY),
+  getChampionCatalog: () => ipcRenderer.invoke(channels.RIOT_CHAMPION_CATALOG),
 
   openExternal: (url) => ipcRenderer.invoke(channels.SHELL_OPEN, url),
 
@@ -79,7 +83,7 @@ contextBridge.exposeInMainWorld('api', {
   importBackup: () => ipcRenderer.invoke(channels.BACKUP_IMPORT),
   openAutoBackupFolder: () => ipcRenderer.invoke(channels.BACKUP_OPEN_AUTO_FOLDER),
 
-  getActiveAccountStatus: () => ipcRenderer.invoke(channels.LEAGUE_CLIENT_STATUS),
+  getActiveAccountStatus: (opts) => ipcRenderer.invoke(channels.LEAGUE_CLIENT_STATUS, opts),
 
   getAppVersion: () => ipcRenderer.invoke(channels.APP_GET_VERSION),
 });

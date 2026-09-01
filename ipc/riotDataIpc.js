@@ -2,7 +2,7 @@
 
 const { ipcMain } = require('electron');
 const channels = require('../ipcChannels');
-const { fetchAccountData, REGIONS } = require('../riot');
+const { fetchAccountData, REGIONS, validateApiKey, getChampionCatalog } = require('../riot');
 const { getSettings, getAccounts, saveAccounts } = require('../lib/store');
 const { loadMatchCache, saveMatchCache } = require('../lib/matchCache');
 const { ensureTodayMatches } = require('../lib/todayMatches');
@@ -52,6 +52,23 @@ function registerRiotDataIpc() {
   });
 
   ipcMain.handle(channels.RIOT_REGIONS, () => REGIONS);
+
+  // Cheap "is this key live right now?" probe, run the instant a new key is
+  // saved so the UI recovers immediately instead of waiting out a full refresh.
+  ipcMain.handle(channels.RIOT_VALIDATE_KEY, async () => {
+    const settings = getSettings();
+    return validateApiKey({ apiKey: settings.apiKey, region: settings.defaultRegion });
+  });
+
+  // Champion id/key/name list from Data Dragon — needs no API key. Used by the
+  // renderer's "owned champions / skins" browser to render names and pictures.
+  ipcMain.handle(channels.RIOT_CHAMPION_CATALOG, async () => {
+    try {
+      return await getChampionCatalog();
+    } catch (e) {
+      return { version: null, champions: [] };
+    }
+  });
 }
 
 module.exports = { registerRiotDataIpc };

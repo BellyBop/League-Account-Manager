@@ -318,6 +318,43 @@ body {
 .tier-CHALLENGER  { border-left-color: #4ad2f0; } .tier-CHALLENGER .tier { color: #7ce4ff; }
 .tier-UNRANKED    { border-left-color: var(--border); } .tier-UNRANKED .tier { color: var(--text-dim); }
 
+/* ---------- Wallet / champions owned ---------- */
+.inventory-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.inv-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.inv-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.inv-tag.be { color: var(--blue); }
+.inv-tag.rp { color: var(--gold); }
+.inv-item.inv-clickable { cursor: pointer; }
+.inv-item.inv-clickable:hover { border-color: var(--gold); color: var(--gold-bright); }
+.inv-item.inv-uncaptured {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border-style: dashed;
+}
+
 /* ---------- Last 5 games ---------- */
 .games-block .section-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
@@ -416,6 +453,38 @@ body {
 .modal a { color: var(--gold); }
 .modal label.checkbox-row { flex-direction: row; align-items: center; gap: 8px; }
 .modal label.checkbox-row input { width: auto; padding: 0; }
+
+/* ---------- Owned champions / skins browser ---------- */
+.modal.modal-wide { width: 720px; }
+.collection-toolbar { display: flex; align-items: center; gap: 12px; }
+.collection-toolbar .search-input { flex: 1; }
+.collection-count { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+.collection-item {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.collection-item img {
+  width: 56px; height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bg);
+}
+.collection-item.skin { grid-column: span 2; }
+.collection-item.skin img { width: 100%; height: 130px; object-position: top center; }
+.collection-name { font-size: 11px; color: var(--text); line-height: 1.25; }
+.collection-empty { grid-column: 1 / -1; text-align: center; color: var(--text-dim); padding: 30px; font-size: 13px; }
 
 /* ---------- Undo-delete toast ---------- */
 .undo-toast {

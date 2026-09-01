@@ -29,6 +29,12 @@ let draggedAccountId = null;
 let activeAccountStatus = null;
 let appVersion = '';
 
+// Data Dragon champion list (id -> { key, name }) + version, for turning an
+// account's owned-champion / owned-skin ID lists into names and pictures.
+let championById = new Map();
+let ddragonVersion = '';
+let collectionState = null; // { kind, ign, items } for the owned-collection modal
+
 const ACTIVE_ACCOUNT_POLL_MS = 15000;
 
 // ---------------------------------------------------------------------------
@@ -40,6 +46,7 @@ async function init() {
   accounts = await window.api.getAccounts();
   mastery = await window.api.getMastery();
   appVersion = await window.api.getAppVersion();
+  await loadChampionCatalog();
 
   populateRegionSelect(el('fieldRegion'));
   populateRegionSelect(el('fieldDefaultRegion'));
@@ -54,7 +61,7 @@ async function init() {
   // often than the account cards do — it's just asking the League Client
   // running on this PC who's currently signed in.
   refreshActiveAccount();
-  setInterval(refreshActiveAccount, ACTIVE_ACCOUNT_POLL_MS);
+  setInterval(() => refreshActiveAccount(), ACTIVE_ACCOUNT_POLL_MS);
 }
 
 function applyDensity() {
@@ -86,6 +93,15 @@ function keyFormatInvalid() {
   return !settings.apiKey || !settings.apiKey.startsWith('RGAPI-');
 }
 
+// Set true the moment any Riot call succeeds (a per-account refresh, or the
+// validate probe after pasting a key) and false when one comes back 401/403.
+// A Riot dev-key 401/403 is always key-wide, so one success is enough to treat
+// the key as live and drop the banner, even while stale per-account "expired"
+// errors from the previous key linger (they'd otherwise keep the banner up
+// forever). It can go stale if the key expires mid-session with no refresh
+// after — same as before this flag existed; the next manual refresh corrects it.
+let keyKnownGood = false;
+
 // Broader check driving the top banner: also treats the key as invalid once
 // any account's refresh has actually hit a 401/403, since a dev key still
 // starts with "RGAPI-" right up until (and after) it expires ~24h in — the
@@ -95,6 +111,7 @@ function keyFormatInvalid() {
 // every account against ever retrying once one of them has expired once.
 function keyLooksMissing() {
   if (keyFormatInvalid()) return true;
+  if (keyKnownGood) return false;
   return accounts.some((a) => a._error === 'EXPIRED_KEY');
 }
 
@@ -319,6 +336,9 @@ function buildCard(account) {
     card.appendChild(buildGames(data));
   }
 
+  const invBlock = buildInventoryBlock(account);
+  if (invBlock) card.appendChild(invBlock);
+
   // ---- Notes (always available) ----
   card.appendChild(buildNotes(account));
 
@@ -497,6 +517,182 @@ function buildLastLpBlock(account) {
   return block;
 }
 
+function inventoryCount(inv) {
+  return {
+    be: inv && inv.blueEssence,
+    rp: inv && inv.riotPoints,
+    champs: inv && inv.championsOwned,
+    champsTotal: inv && inv.championsTotal,
+    skins: inv && inv.ownedSkins ? inv.ownedSkins.length : 0,
+  };
+}
+
+function sameInventory(a, b) {
+  if (!a || !b) return a === b;
+  return JSON.stringify(inventoryCount(a)) === JSON.stringify(inventoryCount(b));
+}
+
+function invItem(tag, value, tagClass) {
+  const span = document.createElement('span');
+  span.className = 'inv-item';
+  span.innerHTML = `<span class="inv-tag${tagClass ? ' ' + tagClass : ''}">${tag}</span>${escapeHtml(String(value))}`;
+  return span;
+}
+
+// Blue Essence, Riot Points, champions owned, and skins owned. Riot's public
+// API exposes none of this — it can only be read from the League Client, and
+// only for whichever account is signed in on this PC. It's captured while that
+// account is active and persisted onto the card, so the last-known values keep
+// showing after the client closes (the tooltip says how long ago). The Champs
+// and Skins chips open a searchable picture grid of what the account owns.
+function buildInventoryBlock(account) {
+  const inv = account.inventory;
+
+  const block = document.createElement('div');
+  block.className = 'inventory-row';
+
+  if (inv) {
+    if (inv.blueEssence != null) block.appendChild(invItem('BE', inv.blueEssence.toLocaleString(), 'be'));
+    if (inv.riotPoints != null) block.appendChild(invItem('RP', inv.riotPoints.toLocaleString(), 'rp'));
+
+    if (inv.championsOwned != null) {
+      const total = inv.championsTotal ? `/${inv.championsTotal}` : '';
+      const item = invItem('Champs', `${inv.championsOwned}${total}`);
+      if (inv.ownedChampionIds && inv.ownedChampionIds.length) {
+        item.classList.add('inv-clickable');
+        item.title = 'Show owned champions';
+        item.addEventListener('click', () => openCollectionModal(account, 'champions'));
+      }
+      block.appendChild(item);
+    }
+
+    if (inv.ownedSkins && inv.ownedSkins.length) {
+      const item = invItem('Skins', inv.ownedSkins.length);
+      item.classList.add('inv-clickable');
+      item.title = 'Show owned skins';
+      item.addEventListener('click', () => openCollectionModal(account, 'skins'));
+      block.appendChild(item);
+    }
+  }
+
+  // Nothing captured yet (or only a partial capture) — tell the user this one
+  // still needs a one-time sign-in on this PC. Champs is the gate: it's the
+  // slowest LCU endpoint to warm up and the one people care about here.
+  const needsCapture = !inv || inv.championsOwned == null || !(inv.ownedChampionIds && inv.ownedChampionIds.length);
+  if (needsCapture) {
+    const hint = document.createElement('span');
+    hint.className = 'inv-item inv-uncaptured';
+    hint.textContent = '◌ Sign in on this PC to capture champs / skins / BE';
+    block.appendChild(hint);
+  }
+
+  block.title = inv
+    ? `Read from the League Client while signed in to this account · updated ${timeAgo(inv.fetchedAt)}`
+    : 'Sign into this account in the League Client on this PC and it fills in automatically';
+  return block;
+}
+
+async function loadChampionCatalog() {
+  try {
+    const cat = await window.api.getChampionCatalog();
+    if (cat && Array.isArray(cat.champions)) {
+      ddragonVersion = cat.version || '';
+      championById = new Map(cat.champions.map((c) => [c.id, c]));
+    }
+  } catch (e) {
+    // Offline / Data Dragon down — the collection modal will fall back to
+    // showing IDs without pictures.
+  }
+}
+
+function champSquareUrl(key) {
+  if (!ddragonVersion || !key) return null;
+  return `https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/champion/${key}.png`;
+}
+
+// Loading-screen art per skin — path is keyed by the champion's Data Dragon key
+// and the skin number (skinId % 1000), with no version in the URL.
+function skinArtUrl(key, skinNum) {
+  if (!key) return null;
+  return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${key}_${skinNum}.jpg`;
+}
+
+function collectionItemsFor(account, kind) {
+  const inv = account.inventory || {};
+  if (kind === 'champions') {
+    return (inv.ownedChampionIds || []).map((id) => {
+      const c = championById.get(id);
+      return { name: c ? c.name : `Champion ${id}`, sub: '', img: c ? champSquareUrl(c.key) : null };
+    });
+  }
+  return (inv.ownedSkins || []).map((s) => {
+    const championId = s.championId != null ? s.championId : Math.floor(s.id / 1000);
+    const skinNum = s.id % 1000;
+    const c = championById.get(championId);
+    return {
+      name: s.name || (c ? `${c.name} skin` : `Skin ${s.id}`),
+      sub: c ? c.name : '',
+      img: c ? skinArtUrl(c.key, skinNum) : null,
+    };
+  });
+}
+
+function openCollectionModal(account, kind) {
+  const ign = (account.cache && account.cache.ign) || account.riotId || account.label || 'account';
+  const items = collectionItemsFor(account, kind)
+    .sort((a, b) => (a.sub || a.name).localeCompare(b.sub || b.name) || a.name.localeCompare(b.name));
+
+  collectionState = { kind, ign, items };
+  el('collectionModalTitle').textContent =
+    `Showing owned ${kind === 'champions' ? 'champs' : 'skins'} for: ${ign}`;
+  el('collectionSearch').value = '';
+  el('collectionSearch').placeholder = kind === 'champions' ? 'Search champions…' : 'Search skins…';
+  renderCollectionGrid('');
+  el('collectionModal').classList.remove('hidden');
+  el('collectionSearch').focus();
+}
+
+function renderCollectionGrid(query) {
+  if (!collectionState) return;
+  const grid = el('collectionGrid');
+  grid.innerHTML = '';
+  const q = query.trim().toLowerCase();
+  const filtered = collectionState.items.filter(
+    (it) => !q || it.name.toLowerCase().includes(q) || (it.sub && it.sub.toLowerCase().includes(q))
+  );
+
+  el('collectionCount').textContent =
+    `${filtered.length}${q ? ` of ${collectionState.items.length}` : ''}`;
+
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="collection-empty">No matches.</div>';
+    return;
+  }
+
+  for (const it of filtered) {
+    const cell = document.createElement('div');
+    cell.className = `collection-item${collectionState.kind === 'skins' ? ' skin' : ''}`;
+    if (it.img) {
+      const img = document.createElement('img');
+      img.src = it.img;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', () => img.remove());
+      cell.appendChild(img);
+    }
+    const name = document.createElement('span');
+    name.className = 'collection-name';
+    name.textContent = it.name;
+    cell.appendChild(name);
+    grid.appendChild(cell);
+  }
+}
+
+function closeCollectionModal() {
+  el('collectionModal').classList.add('hidden');
+  collectionState = null;
+}
+
 function rankBadge(queueLabel, rank) {
   const badge = document.createElement('div');
   const tier = rank ? rank.tier : 'UNRANKED';
@@ -635,10 +831,24 @@ async function refreshOne(id) {
     account.sessionLP = result.sessionLP;
     account.goalProgress = result.goalProgress;
     account._error = null;
+    // A success is proof the key is live — this alone drops the banner (see
+    // keyLooksMissing), so stale per-account "expired" errors elsewhere no
+    // longer need clearing.
+    keyKnownGood = true;
   } else {
     account._error = result.error;
+    if (result.error === 'EXPIRED_KEY' || result.error === 'NO_KEY') keyKnownGood = false;
   }
   render();
+
+  // The ↻ button should also pull this account's BE / champs / skins if it's
+  // the one signed in on this PC — that data comes from the League Client, not
+  // the Riot API, so the normal fetch above never touches it. Not awaited: it
+  // can chain several slow LCU probes and refreshOne has nothing to do with
+  // the result (the inventory-mirror in refreshActiveAccount re-renders).
+  if (activeAccountStatus && activeAccountStatus.matchedAccountId === id) {
+    refreshActiveAccount(true);
+  }
 }
 
 // Guards against two refreshAll() runs overlapping (e.g. the on-launch
@@ -647,20 +857,32 @@ async function refreshOne(id) {
 // which doubles up on the rate limit and races on saving accounts.json,
 // where whichever IPC call finishes last silently wins over the other.
 let refreshAllInProgress = false;
+// Set when refreshAll() is asked to run while one's already going. Rather than
+// silently dropping that request (which is how pasting a fresh key mid-refresh
+// used to leave every already-processed card stuck on its stale EXPIRED_KEY
+// error until the user manually hit "Refresh all" again), the in-flight loop
+// picks this up and does one more full pass — this time with the new key.
+let refreshAllQueued = false;
 
 async function refreshAll() {
-  if (refreshAllInProgress) return;
+  if (refreshAllInProgress) {
+    refreshAllQueued = true;
+    return;
+  }
   refreshAllInProgress = true;
   try {
-    render(); // show cached data immediately
-    for (const account of accounts) {
-      // Sequential to stay comfortably under the dev-key rate limit.
-      await refreshOne(account.id);
-    }
-    // One check for the whole batch (not per-account) — picks up any account
-    // that's newly known to the widget without hammering the rate limit.
-    mastery = await window.api.syncMastery();
-    renderMastery();
+    do {
+      refreshAllQueued = false;
+      render(); // show cached data immediately
+      for (const account of accounts) {
+        // Sequential to stay comfortably under the dev-key rate limit.
+        await refreshOne(account.id);
+      }
+      // One check for the whole batch (not per-account) — picks up any account
+      // that's newly known to the widget without hammering the rate limit.
+      mastery = await window.api.syncMastery();
+      renderMastery();
+    } while (refreshAllQueued);
   } finally {
     refreshAllInProgress = false;
   }
@@ -756,13 +978,54 @@ function timeAgo(ts) {
 // Who's currently signed in to the Riot/League Client on this PC — local
 // machine state Riot's web API can't see, so this only works while that
 // client is actually running here (see lib/leagueClientApi.js).
-async function refreshActiveAccount() {
+let activeRefreshRunning = false;
+let activeRefreshForcePending = false;
+
+async function refreshActiveAccount(forceInventory) {
+  // The 15s interval, the post-game scheduler, and the ↻ button can all call
+  // this at once; a forced call can chain ~7 LCU probes (3s timeout each) on a
+  // client that never exposes inventory, so overlapping runs would pile up and
+  // race each other's gameflow-phase read. One at a time; a force that arrives
+  // mid-run is re-run once the current one finishes.
+  if (activeRefreshRunning) {
+    if (forceInventory) activeRefreshForcePending = true;
+    return;
+  }
+  activeRefreshRunning = true;
   try {
-    activeAccountStatus = await window.api.getActiveAccountStatus();
+    await runActiveAccountRefresh(forceInventory);
+  } finally {
+    activeRefreshRunning = false;
+  }
+  if (activeRefreshForcePending) {
+    activeRefreshForcePending = false;
+    refreshActiveAccount(true);
+  }
+}
+
+async function runActiveAccountRefresh(forceInventory) {
+  try {
+    activeAccountStatus = await window.api.getActiveAccountStatus(
+      forceInventory ? { forceInventory: true } : undefined
+    );
   } catch (e) {
     activeAccountStatus = { signedIn: false };
   }
   renderActiveAccount();
+
+  // BE / RP / champions-owned for the signed-in account — the main process has
+  // already persisted this onto the matched card; mirror it onto our in-memory
+  // copy so it shows right away without a full account reload.
+  if (activeAccountStatus.inventory && activeAccountStatus.matchedAccountId) {
+    const matched = accounts.find((a) => a.id === activeAccountStatus.matchedAccountId);
+    if (matched && !sameInventory(matched.inventory, activeAccountStatus.inventory)) {
+      matched.inventory = activeAccountStatus.inventory;
+      // Skip the re-render if someone's mid-edit in a notes box (a full render
+      // rebuilds every card and would drop their unsaved text) — the new
+      // numbers land on the next render regardless.
+      if (!(document.activeElement && document.activeElement.tagName === 'TEXTAREA')) render();
+    }
+  }
 
   // Only the account that was actually just playing — never every card, and
   // never some other tracked account that happens to share the PC.
@@ -1098,8 +1361,33 @@ async function saveSettings() {
   const apiKey = el('fieldApiKey').value.trim();
   const defaultRegion = el('fieldDefaultRegion').value;
   const launchOnStartup = el('fieldLaunchOnStartup').checked;
+  const keyChanged = apiKey !== (settings.apiKey || '');
   settings = await window.api.saveSettings({ apiKey, defaultRegion, launchOnStartup });
   closeSettings();
+
+  if (keyChanged && apiKey) {
+    // A brand-new key: drop every stale "key expired" error left over from the
+    // old one straight away so the banner and cards stop claiming the key is
+    // dead the moment a fresh one goes in, then confirm the new key really
+    // works with one cheap test call before kicking off the full refresh.
+    keyKnownGood = false;
+    for (const account of accounts) {
+      if (account._error === 'EXPIRED_KEY' || account._error === 'NO_KEY') account._error = null;
+    }
+    render();
+
+    const check = await window.api.validateApiKey();
+    if (check.ok) {
+      keyKnownGood = true;
+    } else if (check.error === 'EXPIRED_KEY' || check.error === 'NO_KEY') {
+      // The replacement key is itself missing/expired — say so now instead of
+      // letting the user watch every card fail one by one.
+      for (const account of accounts) account._error = check.error;
+      render();
+      return;
+    }
+  }
+
   render();
   refreshAll();
 }
@@ -1184,6 +1472,9 @@ function wireEvents() {
   el('importBackupBtn').addEventListener('click', importBackup);
   el('openAutoBackupBtn').addEventListener('click', () => window.api.openAutoBackupFolder());
   el('undoToastBtn').addEventListener('click', undoDelete);
+
+  el('collectionCloseBtn').addEventListener('click', closeCollectionModal);
+  el('collectionSearch').addEventListener('input', (e) => renderCollectionGrid(e.target.value));
 
   // Close modals on overlay click / Escape.
   for (const overlay of document.querySelectorAll('.modal-overlay')) {

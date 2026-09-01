@@ -67,6 +67,58 @@ async function getChampionNameByIdMap(version) {
   return map;
 }
 
+// Full champion list from Data Dragon: numeric id, the Data Dragon key string
+// (used to build icon/splash URLs), and the display name. Cached per version.
+// The renderer uses this to turn an account's owned-champion / owned-skin ID
+// lists (which come from the local League Client) into names and pictures.
+let championCatalog = null;
+let championCatalogVersion = null;
+
+async function getChampionCatalog() {
+  const version = await getDDragonVersion();
+  if (championCatalog && championCatalogVersion === version) {
+    return { version, champions: championCatalog };
+  }
+  const res = await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/champion.json`);
+  const json = await res.json();
+  championCatalog = Object.keys(json.data).map((k) => ({
+    id: Number(json.data[k].key),
+    key: json.data[k].id,
+    name: json.data[k].name,
+  }));
+  championCatalogVersion = version;
+  return { version, champions: championCatalog };
+}
+
+// The set of numeric champion IDs that are real, currently-playable champions
+// (per Data Dragon). The League Client's owned-champions list can include stale
+// or non-playable IDs, so intersecting against this keeps "owned" from ever
+// exceeding the true total (which is how the card showed "236/173").
+async function getChampionIdSet() {
+  const { champions } = await getChampionCatalog();
+  return new Set(champions.map((c) => c.id));
+}
+
+/**
+ * One cheap authenticated call to confirm a key is actually live right now.
+ * lol-status-v4 platform-data is reachable by every dev key and needs no
+ * summoner lookup, so it's the lightest possible "does this key work?" probe —
+ * used the instant a new key is pasted so the UI can recover (or reject it)
+ * immediately instead of waiting out a full per-account refresh cycle.
+ * @param {object} opts { apiKey, region }
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+async function validateApiKey({ apiKey, region }) {
+  if (!apiKey) return { ok: false, error: 'NO_KEY' };
+  const routing = REGIONS[region] || REGIONS.na;
+  try {
+    await riotGet(`https://${routing.platform}.api.riotgames.com/lol/status/v4/platform-data`, apiKey);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 // A small wrapper that surfaces Riot's error codes in a human-friendly way.
 async function riotGet(url, apiKey) {
   const res = await fetch(url, { headers: { 'X-Riot-Token': apiKey } });
@@ -371,5 +423,8 @@ module.exports = {
   computeMasteryWidget,
   fetchMatchPage,
   getDDragonVersion,
+  getChampionIdSet,
+  getChampionCatalog,
   profileIconUrl,
+  validateApiKey,
 };

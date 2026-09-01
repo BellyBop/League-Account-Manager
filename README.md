@@ -13,6 +13,10 @@ read your public match/rank data — everything else stays on your machine.
 - **Daily Solo/Duo W/L** and a running **Net LP today** total
 - **Active account widget** — shows who's currently signed in to the League Client on
   this PC, live, with an auto-refresh the moment their game ends
+- **Blue Essence, RP, champions owned, and skins owned** — read from the League Client
+  while an account is signed in on this PC (Riot's public API doesn't expose these),
+  then kept on the card afterwards. Click the Champs/Skins chip for a searchable
+  picture grid of everything that account owns
 - **Notes**, **goals** (target rank with a progress bar), **favorites**, drag-to-reorder,
   compact/wide view
 - **Manual + automatic backups**, and one-click "copy login + launch client" sign-in

@@ -22,6 +22,8 @@ module.exports = {
 
   RIOT_FETCH: 'riot:fetch',
   RIOT_REGIONS: 'riot:regions',
+  RIOT_VALIDATE_KEY: 'riot:validateKey',
+  RIOT_CHAMPION_CATALOG: 'riot:championCatalog',
 
   SHELL_OPEN: 'shell:open',
 

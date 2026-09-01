@@ -1,6 +1,6 @@
 {
   "name": "league-acc-manager",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "A desktop manager for your League of Legends main and smurf accounts.",
   "main": "main.js",
   "author": "jnathanbotha",
