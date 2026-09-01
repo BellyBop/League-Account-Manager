@@ -5,6 +5,7 @@ const channels = require('../ipcChannels');
 const { getSettings, saveSettings } = require('../lib/store');
 const { resetApiKeyExpiryNotifications } = require('../lib/notifications');
 const { applyLaunchOnStartup } = require('../lib/autoLaunch');
+const { applyAutoCheckSetting } = require('../lib/updater');
 
 function registerSettingsIpc() {
   ipcMain.handle(channels.SETTINGS_GET, () => getSettings());
@@ -21,6 +22,9 @@ function registerSettingsIpc() {
       applyLaunchOnStartup(settings.launchOnStartup);
     }
     saveSettings(merged);
+    if (typeof settings.autoUpdateCheck === 'boolean' && settings.autoUpdateCheck !== current.autoUpdateCheck) {
+      applyAutoCheckSetting(); // reads the setting we just saved
+    }
     return merged;
   });
 }

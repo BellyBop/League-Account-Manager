@@ -1374,6 +1374,7 @@ function openSettings() {
   el('fieldApiKey').value = settings.apiKey || '';
   el('fieldDefaultRegion').value = settings.defaultRegion || 'oce';
   el('fieldLaunchOnStartup').checked = !!settings.launchOnStartup;
+  el('fieldAutoUpdate').checked = settings.autoUpdateCheck !== false;
   el('settingsVersion').textContent = appVersion ? `Version ${appVersion} · ` : '';
   el('updateCheckResult').textContent = '';
   el('settingsModal').classList.remove('hidden');
@@ -1388,8 +1389,9 @@ async function saveSettings() {
   const apiKey = el('fieldApiKey').value.trim();
   const defaultRegion = el('fieldDefaultRegion').value;
   const launchOnStartup = el('fieldLaunchOnStartup').checked;
+  const autoUpdateCheck = el('fieldAutoUpdate').checked;
   const keyChanged = apiKey !== (settings.apiKey || '');
-  settings = await window.api.saveSettings({ apiKey, defaultRegion, launchOnStartup });
+  settings = await window.api.saveSettings({ apiKey, defaultRegion, launchOnStartup, autoUpdateCheck });
   closeSettings();
 
   if (keyChanged && apiKey) {

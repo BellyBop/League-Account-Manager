@@ -33,7 +33,9 @@ installer isn't code-signed; click **More info → Run anyway**.
 
 From here on the app updates itself: it checks GitHub Releases on launch and every
 few hours, downloads a newer version in the background, and shows a "restart to
-apply" banner when it's ready (installing on quit either way).
+apply" banner when it's ready (installing on quit either way). Turn off
+**⚙ Settings → Automatically check for updates** to only check when you click the
+**Check for updates** link there.
 
 ### Running from source instead
 
