@@ -42,4 +42,9 @@ module.exports = {
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
 
   APP_GET_VERSION: 'app:getVersion',
+
+  UPDATE_STATUS: 'update:status',
+  UPDATE_GET_STATUS: 'update:getStatus',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_INSTALL: 'update:install',
 };

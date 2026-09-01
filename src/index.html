@@ -26,6 +26,11 @@
     <a href="#" id="openSettingsFromWarning">open Settings</a> to paste today's key.
   </div>
 
+  <div id="updateBanner" class="update-banner hidden">
+    <span id="updateBannerText"></span>
+    <button id="updateRestartBtn" class="btn btn-primary btn-small hidden">Restart now</button>
+  </div>
+
   <div id="activeAccountWidget" class="active-account-widget hidden" title="Whichever account is currently signed in on this PC — click to jump to its card, if tracked">
     <img id="activeAccountIcon" class="active-account-icon hidden" alt="" />
     <div class="active-account-info">
@@ -177,7 +182,11 @@
         <button class="btn btn-ghost" id="settingsCancelBtn">Close</button>
         <button class="btn btn-primary" id="settingsSaveBtn">Save</button>
       </div>
-      <div class="settings-version hint" id="settingsVersion"></div>
+      <div class="settings-version hint">
+        <span id="settingsVersion"></span>
+        <a href="#" id="checkUpdateLink">Check for updates</a>
+        <span id="updateCheckResult"></span>
+      </div>
     </div>
   </div>
 

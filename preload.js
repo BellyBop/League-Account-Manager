@@ -46,6 +46,11 @@ const channels = {
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
 
   APP_GET_VERSION: 'app:getVersion',
+
+  UPDATE_STATUS: 'update:status',
+  UPDATE_GET_STATUS: 'update:getStatus',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_INSTALL: 'update:install',
 };
 
 // Expose a small, safe API surface to the renderer. No Node access leaks.
@@ -86,4 +91,13 @@ contextBridge.exposeInMainWorld('api', {
   getActiveAccountStatus: (opts) => ipcRenderer.invoke(channels.LEAGUE_CLIENT_STATUS, opts),
 
   getAppVersion: () => ipcRenderer.invoke(channels.APP_GET_VERSION),
+
+  getUpdateStatus: () => ipcRenderer.invoke(channels.UPDATE_GET_STATUS),
+  checkForUpdate: () => ipcRenderer.invoke(channels.UPDATE_CHECK),
+  installUpdate: () => ipcRenderer.invoke(channels.UPDATE_INSTALL),
+  onUpdateStatus: (callback) => {
+    const listener = (_e, state) => callback(state);
+    ipcRenderer.on(channels.UPDATE_STATUS, listener);
+    return () => ipcRenderer.removeListener(channels.UPDATE_STATUS, listener);
+  },
 });

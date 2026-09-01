@@ -27,9 +27,13 @@ read your public match/rank data — everything else stays on your machine.
 
 Grab the latest installer from
 **[Releases](https://github.com/BellyBop/League-Account-Manager/releases/latest)**
-(`League Account Manager Setup x.x.x.exe`), run it, and launch the app — no Node or
+(`LeagueAccountManager-Setup-x.x.x.exe`), run it, and launch the app — no Node or
 npm required. Windows may show an "unrecognized app" SmartScreen prompt since the
 installer isn't code-signed; click **More info → Run anyway**.
+
+From here on the app updates itself: it checks GitHub Releases on launch and every
+few hours, downloads a newer version in the background, and shows a "restart to
+apply" banner when it's ready (installing on quit either way).
 
 ### Running from source instead
 
@@ -45,8 +49,9 @@ npm install
 npm run dist
 ```
 
-Produces `dist/League Account Manager Setup x.x.x.exe` via `electron-builder`
-(unsigned — see the SmartScreen note above).
+Produces `dist/LeagueAccountManager-Setup-x.x.x.exe` via `electron-builder`
+(unsigned — see the SmartScreen note above). A release also needs the generated
+`dist/latest.yml` uploaded alongside the `.exe` for the in-app updater to see it.
 
 ### Add your Riot API key (required)
 
@@ -97,9 +102,9 @@ data automatically; use **↻** to refresh.
 
 - `main.js` — Electron entry point: window setup, IPC registration, background timers
 - `ipc/` — one file per IPC domain (settings, accounts, Riot data, mastery, backup,
-  League Client), each exposing a `registerXIpc()`
+  League Client, updates), each exposing a `registerXIpc()`
 - `lib/` — domain logic: storage, rank math, match history, goals, notifications,
-  mastery, backups, and the local League Client (LCU) integration
+  mastery, backups, auto-update, and the local League Client (LCU) integration
 - `riot.js` — all outbound Riot API calls and region routing; the API key never leaves
   the main process
 - `preload.js` — the sandboxed bridge between the UI and the main process

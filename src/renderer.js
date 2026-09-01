@@ -62,6 +62,32 @@ async function init() {
   // running on this PC who's currently signed in.
   refreshActiveAccount();
   setInterval(() => refreshActiveAccount(), ACTIVE_ACCOUNT_POLL_MS);
+
+  // Auto-update: the main process pushes status as it checks / downloads a new
+  // release; show a banner once one's ready to install.
+  window.api.onUpdateStatus(applyUpdateStatus);
+  applyUpdateStatus(await window.api.getUpdateStatus());
+}
+
+function applyUpdateStatus(state) {
+  const banner = el('updateBanner');
+  const text = el('updateBannerText');
+  const restartBtn = el('updateRestartBtn');
+  if (!state || state.status === 'idle' || state.status === 'checking' || state.status === 'error') {
+    banner.classList.add('hidden');
+    return;
+  }
+  if (state.status === 'downloading') {
+    banner.classList.remove('hidden');
+    restartBtn.classList.add('hidden');
+    text.textContent = `Downloading update${state.version ? ` ${state.version}` : ''}…${state.percent ? ` ${state.percent}%` : ''}`;
+    return;
+  }
+  if (state.status === 'ready') {
+    banner.classList.remove('hidden');
+    restartBtn.classList.remove('hidden');
+    text.textContent = `Update ${state.version || ''} ready — restart to apply.`;
+  }
 }
 
 function applyDensity() {
@@ -1348,7 +1374,8 @@ function openSettings() {
   el('fieldApiKey').value = settings.apiKey || '';
   el('fieldDefaultRegion').value = settings.defaultRegion || 'oce';
   el('fieldLaunchOnStartup').checked = !!settings.launchOnStartup;
-  el('settingsVersion').textContent = appVersion ? `Version ${appVersion}` : '';
+  el('settingsVersion').textContent = appVersion ? `Version ${appVersion} · ` : '';
+  el('updateCheckResult').textContent = '';
   el('settingsModal').classList.remove('hidden');
   el('fieldApiKey').focus();
 }
@@ -1454,6 +1481,17 @@ function wireEvents() {
     window.api.openExternal('https://developer.riotgames.com/');
   });
 
+  el('checkUpdateLink').addEventListener('click', async (e) => {
+    e.preventDefault();
+    el('updateCheckResult').textContent = ' checking…';
+    const state = await window.api.checkForUpdate();
+    // The real outcome arrives via the pushed update:status event; this is just
+    // immediate acknowledgement plus the "you're on the latest" / dev-build case.
+    if (state.status === 'idle') el('updateCheckResult').textContent = " you're up to date";
+    else if (state.status === 'error') el('updateCheckResult').textContent = ' check failed';
+    else el('updateCheckResult').textContent = '';
+  });
+
   el('searchInput').addEventListener('input', (e) => {
     searchText = e.target.value.trim().toLowerCase();
     render();
@@ -1475,6 +1513,12 @@ function wireEvents() {
 
   el('collectionCloseBtn').addEventListener('click', closeCollectionModal);
   el('collectionSearch').addEventListener('input', (e) => renderCollectionGrid(e.target.value));
+
+  el('updateRestartBtn').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = 'Restarting…';
+    await window.api.installUpdate();
+  });
 
   // Close modals on overlay click / Escape.
   for (const overlay of document.querySelectorAll('.modal-overlay')) {
