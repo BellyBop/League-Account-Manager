@@ -29,10 +29,10 @@ let draggedAccountId = null;
 let activeAccountStatus = null;
 let appVersion = '';
 
-// Data Dragon champion list (id -> { key, name }) + version, for turning an
-// account's owned-champion / owned-skin ID lists into names and pictures.
+// Data Dragon champion list (numeric id -> { key, name }), for labelling an
+// account's owned-champion / owned-skin ID lists. Pictures come from Community
+// Dragon by numeric id and don't need this.
 let championById = new Map();
-let ddragonVersion = '';
 let collectionState = null; // { kind, ign, items } for the owned-collection modal
 
 const ACTIVE_ACCOUNT_POLL_MS = 15000;
@@ -621,49 +621,55 @@ function buildInventoryBlock(account) {
 async function loadChampionCatalog() {
   try {
     const cat = await window.api.getChampionCatalog();
-    if (cat && Array.isArray(cat.champions)) {
-      ddragonVersion = cat.version || '';
+    if (cat && Array.isArray(cat.champions) && cat.champions.length) {
       championById = new Map(cat.champions.map((c) => [c.id, c]));
     }
   } catch (e) {
-    // Offline / Data Dragon down — the collection modal will fall back to
-    // showing IDs without pictures.
+    // Offline / Data Dragon down — the modal still shows pictures (Community
+    // Dragon, by id) and skin names (from the client), just not champion names.
   }
 }
 
-function champSquareUrl(key) {
-  if (!ddragonVersion || !key) return null;
-  return `https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/champion/${key}.png`;
+// Images come from Community Dragon, which is keyed by numeric champion ID —
+// no dependency on the Data Dragon catalog loading or its per-champion "key"
+// string, so pictures still work even when champion *names* don't.
+function champSquareUrl(championId) {
+  return `https://cdn.communitydragon.org/latest/champion/${championId}/square`;
 }
 
-// Loading-screen art per skin — path is keyed by the champion's Data Dragon key
-// and the skin number (skinId % 1000), with no version in the URL.
-function skinArtUrl(key, skinNum) {
-  if (!key) return null;
-  return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${key}_${skinNum}.jpg`;
+function skinArtUrl(championId, skinNum) {
+  return `https://cdn.communitydragon.org/latest/champion/${championId}/tile/skin/${skinNum}`;
+}
+
+function championName(id) {
+  const c = championById.get(id);
+  return c ? c.name : null;
 }
 
 function collectionItemsFor(account, kind) {
   const inv = account.inventory || {};
   if (kind === 'champions') {
-    return (inv.ownedChampionIds || []).map((id) => {
-      const c = championById.get(id);
-      return { name: c ? c.name : `Champion ${id}`, sub: '', img: c ? champSquareUrl(c.key) : null };
-    });
+    return (inv.ownedChampionIds || []).map((id) => ({
+      name: championName(id) || `Champion ${id}`,
+      sub: '',
+      img: champSquareUrl(id),
+    }));
   }
-  return (inv.ownedSkins || []).map((s) => {
-    const championId = s.championId != null ? s.championId : Math.floor(s.id / 1000);
-    const skinNum = s.id % 1000;
-    const c = championById.get(championId);
-    return {
-      name: s.name || (c ? `${c.name} skin` : `Skin ${s.id}`),
-      sub: c ? c.name : '',
-      img: c ? skinArtUrl(c.key, skinNum) : null,
-    };
-  });
+  return (inv.ownedSkins || [])
+    .map((s) => {
+      const championId = s.championId != null ? s.championId : Math.floor(s.id / 1000);
+      const skinNum = s.id % 1000;
+      const champ = championName(championId);
+      return {
+        name: s.name || (champ ? `${champ} skin` : `Skin ${s.id}`),
+        sub: champ || '',
+        img: championId > 0 && championId < 3000 ? skinArtUrl(championId, skinNum) : null,
+      };
+    });
 }
 
-function openCollectionModal(account, kind) {
+async function openCollectionModal(account, kind) {
+  if (!championById.size) await loadChampionCatalog(); // retry if the launch load failed
   const ign = (account.cache && account.cache.ign) || account.riotId || account.label || 'account';
   const items = collectionItemsFor(account, kind)
     .sort((a, b) => (a.sub || a.name).localeCompare(b.sub || b.name) || a.name.localeCompare(b.name));
@@ -673,8 +679,11 @@ function openCollectionModal(account, kind) {
     `Showing owned ${kind === 'champions' ? 'champs' : 'skins'} for: ${ign}`;
   el('collectionSearch').value = '';
   el('collectionSearch').placeholder = kind === 'champions' ? 'Search champions…' : 'Search skins…';
-  renderCollectionGrid('');
+  // Reveal the modal BEFORE building the grid so lazy-loaded images have a real
+  // viewport to intersect — images rendered into a display:none container never
+  // start loading, which is why the grid was showing as text only.
   el('collectionModal').classList.remove('hidden');
+  renderCollectionGrid('');
   el('collectionSearch').focus();
 }
 
@@ -700,16 +709,27 @@ function renderCollectionGrid(query) {
     cell.className = `collection-item${collectionState.kind === 'skins' ? ' skin' : ''}`;
     if (it.img) {
       const img = document.createElement('img');
-      img.src = it.img;
       img.alt = '';
       img.loading = 'lazy';
-      img.addEventListener('error', () => img.remove());
+      // Hide the cell's image slot if the art 404s (a brand-new skin CDragon
+      // hasn't picked up, or an odd non-champion entry) rather than leaving a
+      // broken-image box.
+      img.addEventListener('error', () => { img.remove(); cell.classList.add('no-art'); });
+      img.src = it.img;
       cell.appendChild(img);
+    } else {
+      cell.classList.add('no-art');
     }
     const name = document.createElement('span');
     name.className = 'collection-name';
     name.textContent = it.name;
     cell.appendChild(name);
+    if (it.sub && collectionState.kind === 'skins' && it.sub !== it.name) {
+      const sub = document.createElement('span');
+      sub.className = 'collection-sub';
+      sub.textContent = it.sub;
+      cell.appendChild(sub);
+    }
     grid.appendChild(cell);
   }
 }
