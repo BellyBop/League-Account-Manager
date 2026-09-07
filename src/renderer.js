@@ -604,11 +604,19 @@ function buildInventoryBlock(account) {
   // Nothing captured yet (or only a partial capture) — tell the user this one
   // still needs a one-time sign-in on this PC. Champs is the gate: it's the
   // slowest LCU endpoint to warm up and the one people care about here.
-  const needsCapture = !inv || inv.championsOwned == null || !(inv.ownedChampionIds && inv.ownedChampionIds.length);
-  if (needsCapture) {
+  const hasChamps = inv && inv.championsOwned != null && inv.ownedChampionIds && inv.ownedChampionIds.length;
+  if (!hasChamps) {
     const hint = document.createElement('span');
     hint.className = 'inv-item inv-uncaptured';
     hint.textContent = '◌ Sign in on this PC to capture champs / skins / BE';
+    block.appendChild(hint);
+  } else if (inv.blueEssence == null && activeAccountStatus && activeAccountStatus.matchedAccountId === account.id) {
+    // Champs are in but the wallet hasn't come up yet — it lags the champion
+    // list by a poll or three after signing in. Don't move on to the next
+    // account just yet.
+    const hint = document.createElement('span');
+    hint.className = 'inv-item inv-uncaptured';
+    hint.textContent = '◌ reading BE / RP…';
     block.appendChild(hint);
   }
 
