@@ -99,6 +99,17 @@ async function getChampionIdSet() {
   return new Set(champions.map((c) => c.id));
 }
 
+// A key Riot just (re)issued can get a flat 401/403 for a stretch before their
+// edge fully recognizes it — confirmed live: the exact same key, same call,
+// went EXPIRED_KEY then 200 moments later with nothing else changed. This is
+// the one place that's worth paying a few extra seconds for: telling someone
+// their brand-new key is dead when it actually works is worse than this
+// one-shot check taking a bit longer. NOT_FOUND/RATE_LIMITED etc. aren't
+// retried — only EXPIRED_KEY, and only here (a routine per-account refresh
+// still fails fast on a real 401, which is exactly what you want once a key
+// has actually expired).
+const KEY_VALIDATE_RETRY_DELAYS_MS = [1500, 3000, 6000];
+
 /**
  * One cheap authenticated call to confirm a key is actually live right now.
  * lol-status-v4 platform-data is reachable by every dev key and needs no
@@ -111,11 +122,19 @@ async function getChampionIdSet() {
 async function validateApiKey({ apiKey, region }) {
   if (!apiKey) return { ok: false, error: 'NO_KEY' };
   const routing = REGIONS[region] || REGIONS.na;
-  try {
-    await riotGet(`https://${routing.platform}.api.riotgames.com/lol/status/v4/platform-data`, apiKey);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e.message || String(e) };
+  const url = `https://${routing.platform}.api.riotgames.com/lol/status/v4/platform-data`;
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await riotGet(url, apiKey);
+      return { ok: true };
+    } catch (e) {
+      const message = e.message || String(e);
+      if (message !== 'EXPIRED_KEY' || attempt >= KEY_VALIDATE_RETRY_DELAYS_MS.length) {
+        return { ok: false, error: message };
+      }
+      await delay(KEY_VALIDATE_RETRY_DELAYS_MS[attempt]);
+    }
   }
 }
 
@@ -142,6 +161,15 @@ async function riotGet(url, apiKey) {
     throw new Error(`Riot API ${res.status}: ${text}`);
   }
   return res.json();
+}
+
+// A cached puuid can itself be malformed (seen live: Riot's account-v1 handed
+// back a puuid that every by-puuid endpoint then 400s on forever with
+// "Exception decrypting <that puuid>" — retrying the same request never helps
+// since the puuid itself will never decrypt). Detected by the error actually
+// quoting the puuid we sent, so this can't misfire on an unrelated 400.
+function isBadPuuidError(message, puuid) {
+  return Boolean(puuid) && /exception decrypting/i.test(message || '') && message.includes(puuid);
 }
 
 // Parse "GameName#TAG" into its two parts.
@@ -231,7 +259,21 @@ async function getMatchDetails({ apiKey, region, puuid, matchIds, cache }) {
  *   matchCache — plain object keyed by `${matchId}:${puuid}`, shared with getMatchDetails
  *     to avoid re-fetching matches already seen (see main.js).
  */
-async function fetchAccountData({ apiKey, riotId, region, knownPuuid, matchCache }) {
+async function fetchAccountData(opts) {
+  try {
+    return await fetchAccountDataWithPuuid(opts);
+  } catch (e) {
+    // The cached puuid we were told to trust turned out to be bad — re-resolve
+    // it from scratch (ignoring the cache) and try exactly once more, rather
+    // than surfacing an error that a retry of the same request could never fix.
+    if (opts.knownPuuid && isBadPuuidError(e.message, opts.knownPuuid)) {
+      return await fetchAccountDataWithPuuid({ ...opts, knownPuuid: null });
+    }
+    throw e;
+  }
+}
+
+async function fetchAccountDataWithPuuid({ apiKey, riotId, region, knownPuuid, matchCache }) {
   if (!apiKey) throw new Error('NO_KEY');
   const routing = REGIONS[region];
   if (!routing) throw new Error(`Unknown region: ${region}`);

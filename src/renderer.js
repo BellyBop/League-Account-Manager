@@ -55,6 +55,22 @@ async function init() {
   applyDensity();
   render();
   renderMastery();
+
+  // A key already sitting in settings from a previous launch never goes
+  // through saveSettings()'s validate-and-clear-the-banner step — without
+  // this, the banner would wait on a full account refresh (slow, and can
+  // fail for reasons unrelated to the key) before confirming a key that's
+  // actually fine. One cheap call up front settles it immediately. Not
+  // awaited so it doesn't delay showing cached cards.
+  if (!keyFormatInvalid()) {
+    window.api.validateApiKey().then((check) => {
+      if (check.ok) {
+        keyKnownGood = true;
+        render();
+      }
+    });
+  }
+
   refreshAll(); // pull fresh data on launch (uses cache instantly, then updates)
 
   // Local-only and cheap (no Riot API involved), so this can poll far more
@@ -164,7 +180,8 @@ function matchesFilters(account) {
 }
 
 function render() {
-  keyWarningEl.classList.toggle('hidden', !keyLooksMissing());
+  const missing = keyLooksMissing();
+  keyWarningEl.classList.toggle('hidden', !missing);
 
   // Favorites float to the top; stable sort keeps everything else in its
   // existing (drag-ordered) relative position.
@@ -1425,24 +1442,23 @@ async function saveSettings() {
   if (keyChanged && apiKey) {
     // A brand-new key: drop every stale "key expired" error left over from the
     // old one straight away so the banner and cards stop claiming the key is
-    // dead the moment a fresh one goes in, then confirm the new key really
-    // works with one cheap test call before kicking off the full refresh.
+    // dead the moment a fresh one goes in.
     keyKnownGood = false;
     for (const account of accounts) {
       if (account._error === 'EXPIRED_KEY' || account._error === 'NO_KEY') account._error = null;
     }
     render();
 
+    // Best-effort fast path only: confirm a good key quickly so the banner
+    // can drop before any per-account refresh even starts. A negative result
+    // here is NOT proof the key is dead — confirmed live that Riot's edge can
+    // flat-out 401 a freshly (re)issued key for a stretch and then accept the
+    // exact same key moments later with nothing else changed — so this must
+    // never short-circuit the real refresh below. refreshAll()'s actual
+    // per-account fetches are the source of truth and will set keyKnownGood
+    // themselves the moment one succeeds; this just tries to beat them to it.
     const check = await window.api.validateApiKey();
-    if (check.ok) {
-      keyKnownGood = true;
-    } else if (check.error === 'EXPIRED_KEY' || check.error === 'NO_KEY') {
-      // The replacement key is itself missing/expired — say so now instead of
-      // letting the user watch every card fail one by one.
-      for (const account of accounts) account._error = check.error;
-      render();
-      return;
-    }
+    if (check.ok) keyKnownGood = true;
   }
 
   render();
@@ -1484,6 +1500,13 @@ function friendlyError(code) {
     case 'RATE_LIMITED':
       return 'Rate limited by Riot. Wait a moment and refresh again.';
     default:
+      // A malformed cached puuid causes this (Riot 400s "Exception decrypting
+      // <puuid>" on every by-puuid call) — the app already re-resolves and
+      // retries once automatically (see fetchAccountData in riot.js), so this
+      // only ever reaches the UI if that retry also failed.
+      if (code && /exception decrypting/i.test(code)) {
+        return 'Riot API hiccup resolving this account — wait a moment and refresh again.';
+      }
       return code || 'Something went wrong.';
   }
 }
