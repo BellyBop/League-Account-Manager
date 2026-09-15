@@ -901,6 +901,7 @@ async function refreshOne(id) {
     account.cache = result.data;
     account.sessionLP = result.sessionLP;
     account.goalProgress = result.goalProgress;
+    account.netLpToday = result.netLpToday;
     account._error = null;
     // A success is proof the key is live — this alone drops the banner (see
     // keyLooksMissing), so stale per-account "expired" errors elsewhere no

@@ -7,6 +7,7 @@ const { getSettings, getAccounts, saveAccounts } = require('../lib/store');
 const { loadMatchCache, saveMatchCache } = require('../lib/matchCache');
 const { ensureTodayMatches } = require('../lib/todayMatches');
 const { computeGoalProgress } = require('../lib/goals');
+const { computeNetLpToday } = require('../lib/lpLog');
 
 function registerRiotDataIpc() {
   ipcMain.handle(channels.RIOT_FETCH, async (_e, { id }) => {
@@ -42,10 +43,16 @@ function registerRiotDataIpc() {
       };
       accounts[idx].sessionLP = sessionLP;
       const goalProgress = computeGoalProgress(accounts[idx], data);
+      // Recomputed on every refresh (same reason ACCOUNTS_GET does — see its
+      // comment): it's date-scoped ("today"), so a value computed once at
+      // launch goes stale the moment the calendar day rolls over, and the
+      // card's ↻ button only ever went through this handler, never a full
+      // accounts reload, so it had no way to pick up new log entries either.
+      accounts[idx].netLpToday = computeNetLpToday(accounts[idx]);
 
       saveMatchCache(matchCache);
       saveAccounts(accounts);
-      return { ok: true, data, sessionLP, goalProgress };
+      return { ok: true, data, sessionLP, goalProgress, netLpToday: accounts[idx].netLpToday };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }
