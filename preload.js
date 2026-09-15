@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 // Channel name strings are inlined here rather than required from
 // ipcChannels.js: preload scripts run in Electron's sandboxed context (the
@@ -100,4 +100,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on(channels.UPDATE_STATUS, listener);
     return () => ipcRenderer.removeListener(channels.UPDATE_STATUS, listener);
   },
+
+  // Page zoom (Ctrl +/-/0, Ctrl+scroll) — webFrame acts on this renderer's own
+  // frame directly and synchronously, no IPC round trip to the main process
+  // needed. Persisting the chosen level across launches is a separate,
+  // explicit saveSettings() call the renderer makes after changing it.
+  getZoomLevel: () => webFrame.getZoomLevel(),
+  setZoomLevel: (level) => webFrame.setZoomLevel(level),
 });

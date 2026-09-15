@@ -17,7 +17,7 @@ read your public match/rank data — everything else stays on your machine.
   while an account is signed in on this PC (Riot's public API doesn't expose these),
   then kept on the card afterwards. Click the Champs/Skins chip for a searchable
   picture grid of everything that account owns
-- **Notes**, **goals** (target rank with a progress bar), **favorites**, drag-to-reorder,
+- **Notes**, **goals** (target rank, showing live LP-to-go), **favorites**, drag-to-reorder,
   compact/wide view
 - **Manual + automatic backups**, and one-click "copy login + launch client" sign-in
 - **Collective mastery widget** — top 5 champions by combined mastery across all accounts
@@ -95,7 +95,9 @@ data automatically; use **↻** to refresh.
 - **Backups:** **⚙ Settings → Backup accounts** exports your labels/notes/emails/logins
   (not rank data, which is refetched from Riot) to a JSON file. Automatic daily backups
   also go to `<userData>/auto-backups` (last 7 kept).
-- **Keyboard shortcuts:** `Ctrl+F` search, `Ctrl+N` add account, `Ctrl+R` refresh all.
+- **Keyboard shortcuts:** `Ctrl+F` search, `Ctrl+N` add account, `Ctrl+R` refresh all,
+  `Ctrl+=`/`Ctrl+-`/`Ctrl+0` (or `Ctrl`+scroll) to zoom in/out/reset — remembered
+  between launches.
 - **Net LP today** only counts games the app was open for start-to-finish, so it can
   undercount on a day the app wasn't running the whole time — the W/L count above it is
   always complete since it's rebuilt from real match history instead.

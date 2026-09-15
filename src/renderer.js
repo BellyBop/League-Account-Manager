@@ -53,6 +53,7 @@ async function init() {
 
   wireEvents();
   applyDensity();
+  applyZoomLevel(settings.zoomLevel || 0);
   render();
   renderMastery();
 
@@ -116,6 +117,35 @@ function applyDensity() {
 async function toggleDensity() {
   settings = await window.api.saveSettings({ compactView: !settings.compactView });
   applyDensity();
+}
+
+// ---------------------------------------------------------------------------
+// Zoom (Ctrl +/-/0, Ctrl+scroll) — matches the browser convention users
+// already know. webFrame's zoom is per-renderer-frame and applies instantly;
+// the level is persisted to settings so it's remembered next launch, but that
+// write is debounced since a scroll-to-zoom gesture can fire many wheel
+// events in a row and there's no need to hit disk for every single one.
+// ---------------------------------------------------------------------------
+const ZOOM_STEP = 0.5;
+const ZOOM_MIN = -6;
+const ZOOM_MAX = 8;
+const ZOOM_SAVE_DEBOUNCE_MS = 500;
+let zoomSaveTimer = null;
+
+function applyZoomLevel(level) {
+  const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, level));
+  window.api.setZoomLevel(clamped);
+
+  clearTimeout(zoomSaveTimer);
+  zoomSaveTimer = setTimeout(async () => {
+    settings = await window.api.saveSettings({ zoomLevel: clamped });
+  }, ZOOM_SAVE_DEBOUNCE_MS);
+
+  return clamped;
+}
+
+function adjustZoom(delta) {
+  applyZoomLevel(window.api.getZoomLevel() + delta);
 }
 
 function populateRegionSelect(select) {
@@ -514,18 +544,26 @@ function formatNetLpToday(net) {
 
 function buildGoalBlock(account) {
   if (!account.goal) return null;
-  const progress = account.goalProgress || { percent: 0, reached: false };
+  const progress = account.goalProgress || { lpToGo: null, reached: false };
   const label = `${titleCase(account.goal.tier)}${account.goal.rank ? ' ' + account.goal.rank : ''}`;
+
+  let status;
+  if (progress.reached) {
+    status = 'Reached!';
+  } else if (progress.lpToGo != null) {
+    status = `${progress.lpToGo.toLocaleString()} LP to go`;
+  } else {
+    status = 'Unranked';
+  }
 
   const block = document.createElement('div');
   block.className = `goal-block${progress.reached ? ' reached' : ''}`;
-  block.title = 'Progress measured from your rank when the goal was set, not from before — a freshly-set goal always starts at 0%.';
+  block.title = 'How much LP stands between your current rank and this goal (~100 LP per division) — recalculated fresh from your current rank every refresh, not from wherever you were when you set it.';
   block.innerHTML = `
     <div class="goal-label">
       <span class="goal-name">🎯 Goal: ${escapeHtml(label)}</span>
-      <span class="goal-status">${progress.reached ? 'Reached!' : `${progress.percent}%`}</span>
+      <span class="goal-status">${status}</span>
     </div>
-    <div class="goal-bar"><div class="goal-bar-fill" style="width:${progress.percent}%"></div></div>
   `;
   return block;
 }
@@ -1585,6 +1623,25 @@ function wireEvents() {
     }
 
     if (!(e.ctrlKey || e.metaKey)) return;
+
+    // Zoom: fine while a modal's open (unlike the shortcuts below) since it
+    // can't collide with typing in a form field.
+    if (e.key === '=' || e.key === '+') {
+      e.preventDefault();
+      adjustZoom(ZOOM_STEP);
+      return;
+    }
+    if (e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      adjustZoom(-ZOOM_STEP);
+      return;
+    }
+    if (e.key === '0') {
+      e.preventDefault();
+      applyZoomLevel(0);
+      return;
+    }
+
     // Don't hijack these while a modal's open — the user's likely mid-form.
     if (document.querySelector('.modal-overlay:not(.hidden)')) return;
 
@@ -1601,6 +1658,15 @@ function wireEvents() {
       refreshAll();
     }
   });
+
+  // Ctrl+scroll to zoom — same convention as browsers. { passive: false } is
+  // required so preventDefault() can actually stop the page from scrolling
+  // while zooming.
+  document.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    adjustZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+  }, { passive: false });
 }
 
 init();
