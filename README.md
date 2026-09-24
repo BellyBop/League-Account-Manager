@@ -19,7 +19,8 @@ read your public match/rank data — everything else stays on your machine.
   picture grid of everything that account owns
 - **Notes**, **goals** (target rank, showing live LP-to-go), **favorites**, drag-to-reorder,
   compact/wide view
-- **Manual + automatic backups**, and one-click "copy login + launch client" sign-in
+- **Manual + automatic backups**, optionally to a cloud-synced folder too, and
+  one-click "copy login + launch client" sign-in
 - **Collective mastery widget** — top 5 champions by combined mastery across all accounts
 - Search/filter by label, IGN, region, email, login, or notes
 
@@ -94,7 +95,19 @@ data automatically; use **↻** to refresh.
   match when you click it, that disconnects you and may count as leaving.
 - **Backups:** **⚙ Settings → Backup accounts** exports your labels/notes/emails/logins
   (not rank data, which is refetched from Riot) to a JSON file. Automatic daily backups
-  also go to `<userData>/auto-backups` (last 7 kept).
+  also go to `<userData>/auto-backups` (last 7 kept). These are all local-disk only —
+  if the machine (or just its user profile) is lost, so are they.
+- **Cloud backup (optional):** **⚙ Settings → Cloud backup** points the app at any
+  folder — typically a OneDrive/Google Drive/Dropbox folder already syncing on this PC
+  — and writes the same backup data there on a timer (last 5 kept), so it ends up
+  off-machine without the app needing to sign into anything itself. Saved passwords can
+  optionally ride along too, but never in plaintext and never under the OS-tied
+  encryption above (see previous bullet) — they're instead encrypted with a passphrase
+  you set, which is the only thing that can decrypt them back out and which the app
+  never stores anywhere but a local, machine-tied cache used purely so scheduled
+  backups don't need someone typing it in every few hours. Forgetting that passphrase
+  means the passwords in every backup made with it are unrecoverable, same as forgetting
+  a master password anywhere else — write it down somewhere real.
 - **Keyboard shortcuts:** `Ctrl+F` search, `Ctrl+N` add account, `Ctrl+R` refresh all,
   `Ctrl+=`/`Ctrl+-`/`Ctrl+0` (or `Ctrl`+scroll) to zoom in/out/reset — remembered
   between launches.

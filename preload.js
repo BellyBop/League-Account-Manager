@@ -42,6 +42,16 @@ const channels = {
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
   BACKUP_OPEN_AUTO_FOLDER: 'backup:openAutoFolder',
+  BACKUP_CHOOSE_AUTO_FOLDER: 'backup:chooseAutoFolder',
+  BACKUP_UNDO_LAST_RESTORE: 'backup:undoLastRestore',
+  BACKUP_SET_PASSPHRASE: 'backup:setPassphrase',
+  BACKUP_CLEAR_PASSPHRASE: 'backup:clearPassphrase',
+  BACKUP_VERIFY_PASSPHRASE: 'backup:verifyPassphrase',
+
+  CLOUD_BACKUP_CHOOSE_FOLDER: 'cloudBackup:chooseFolder',
+  CLOUD_BACKUP_OPEN_FOLDER: 'cloudBackup:openFolder',
+  CLOUD_BACKUP_RUN_NOW: 'cloudBackup:runNow',
+  CLOUD_BACKUP_RESTORE: 'cloudBackup:restore',
 
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
 
@@ -85,8 +95,18 @@ contextBridge.exposeInMainWorld('api', {
   syncMastery: () => ipcRenderer.invoke(channels.MASTERY_SYNC),
 
   exportBackup: () => ipcRenderer.invoke(channels.BACKUP_EXPORT),
-  importBackup: () => ipcRenderer.invoke(channels.BACKUP_IMPORT),
+  importBackup: (passphrase) => ipcRenderer.invoke(channels.BACKUP_IMPORT, { passphrase }),
   openAutoBackupFolder: () => ipcRenderer.invoke(channels.BACKUP_OPEN_AUTO_FOLDER),
+  chooseAutoBackupFolder: () => ipcRenderer.invoke(channels.BACKUP_CHOOSE_AUTO_FOLDER),
+  undoLastRestore: () => ipcRenderer.invoke(channels.BACKUP_UNDO_LAST_RESTORE),
+  setBackupPassphrase: (passphrase) => ipcRenderer.invoke(channels.BACKUP_SET_PASSPHRASE, passphrase),
+  clearBackupPassphrase: () => ipcRenderer.invoke(channels.BACKUP_CLEAR_PASSPHRASE),
+  verifyBackupPassphrase: (passphrase) => ipcRenderer.invoke(channels.BACKUP_VERIFY_PASSPHRASE, passphrase),
+
+  chooseCloudBackupFolder: () => ipcRenderer.invoke(channels.CLOUD_BACKUP_CHOOSE_FOLDER),
+  openCloudBackupFolder: () => ipcRenderer.invoke(channels.CLOUD_BACKUP_OPEN_FOLDER),
+  runCloudBackupNow: () => ipcRenderer.invoke(channels.CLOUD_BACKUP_RUN_NOW),
+  restoreCloudBackup: (passphrase) => ipcRenderer.invoke(channels.CLOUD_BACKUP_RESTORE, { passphrase }),
 
   getActiveAccountStatus: (opts) => ipcRenderer.invoke(channels.LEAGUE_CLIENT_STATUS, opts),
 

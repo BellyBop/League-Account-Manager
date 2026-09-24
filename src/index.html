@@ -41,7 +41,10 @@
   </div>
 
   <div class="toolbar">
-    <input type="text" id="searchInput" class="search-input" placeholder="Search by label, IGN, region, notes…" />
+    <div class="search-wrap">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search by label, IGN, region, notes…" />
+      <button type="button" id="searchClearBtn" class="search-clear hidden" aria-label="Clear search">✕</button>
+    </div>
     <select id="filterType" class="filter-select">
       <option value="">All types</option>
       <option value="Smurf">Smurf</option>
@@ -60,6 +63,13 @@
       <option value="MASTER">Master</option>
       <option value="GRANDMASTER">Grandmaster</option>
       <option value="CHALLENGER">Challenger</option>
+    </select>
+    <select id="sortBy" class="filter-select">
+      <option value="">Manual order</option>
+      <option value="rank-desc">Rank: High → Low</option>
+      <option value="rank-asc">Rank: Low → High</option>
+      <option value="label-asc">Label: A → Z</option>
+      <option value="label-desc">Label: Z → A</option>
     </select>
   </div>
 
@@ -153,35 +163,83 @@
   <div id="settingsModal" class="modal-overlay hidden">
     <div class="modal">
       <h2>Settings</h2>
-      <label>Riot API key
-        <input type="password" id="fieldApiKey" placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-      </label>
-      <p class="hint">
-        Development keys expire every 24 hours. Get a fresh one at
-        <a href="#" id="devPortalLink">developer.riotgames.com</a> and paste it here each day.
-      </p>
-      <label>Default region for new accounts
-        <select id="fieldDefaultRegion"></select>
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="fieldLaunchOnStartup" />
-        Launch on startup
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="fieldAutoUpdate" />
-        Automatically check for updates
-      </label>
-      <label>Data
+      <h3 class="settings-section">General</h3>
+      <div class="settings-group">
+        <label>
+          <span>Riot API key <button type="button" class="info-btn" data-info-target="apiKeyInfoHint" aria-label="More info">ⓘ</button></span>
+          <input type="password" id="fieldApiKey" placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        </label>
+        <p class="hint hidden" id="apiKeyInfoHint">
+          Development keys expire every 24 hours. Get a fresh one at
+          <a href="#" id="devPortalLink">developer.riotgames.com</a> and paste it here each day.
+        </p>
+        <label>Default region for new accounts
+          <select id="fieldDefaultRegion"></select>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="fieldLaunchOnStartup" />
+          Launch on startup
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="fieldAutoUpdate" />
+          Automatically check for updates
+        </label>
+      </div>
+
+      <h3 class="settings-section">Backup &amp; restore</h3>
+      <div class="settings-group">
+        <h4 class="settings-subsection">Passphrase <button type="button" class="info-btn" data-info-target="passphraseInfoHint" aria-label="More info">ⓘ</button></h4>
+        <span class="hint hidden" id="passphraseInfoHint">Shared by local and cloud backups below — one passphrase protects passwords in both. Never stored anywhere but your head (or a real password manager); forgetting it makes every backup's passwords unrecoverable, old and new.</span>
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="setBackupPassphraseBtn">🔑 Set passphrase</button>
+          <button class="btn btn-ghost hidden" id="clearBackupPassphraseBtn">Remove passphrase</button>
+        </div>
+
+        <h4 class="settings-subsection">Cloud <button type="button" class="info-btn" data-info-target="cloudInfoHint" aria-label="More info">ⓘ</button></h4>
+        <span class="hint hidden" id="cloudInfoHint">Point this at a OneDrive, Google Drive, or Dropbox folder on this PC so whatever syncs it uploads the backup automatically.</span>
+        <label class="checkbox-row">
+          <input type="checkbox" id="fieldCloudBackupEnabled" />
+          Automatically back up to a cloud-synced folder
+        </label>
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="chooseCloudFolderBtn">📁 Choose folder…</button>
+          <button class="btn btn-ghost" id="openCloudFolderBtn">📂 Open folder</button>
+        </div>
+        <span class="hint hint-tight" id="cloudFolderHint"></span>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="fieldCloudIncludePasswords" />
+          Also include saved passwords
+        </label>
+        <span class="hint hint-tight" id="cloudBackupStatusHint"></span>
+
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="cloudBackupNowBtn">☁ Back up now</button>
+          <button class="btn btn-ghost" id="cloudRestoreBtn">⭱ Restore from cloud backup</button>
+        </div>
+        <span class="hint hint-tight" id="cloudLastBackupHint"></span>
+
+        <h4 class="settings-subsection">Local <button type="button" class="info-btn" data-info-target="localInfoHint" aria-label="More info">ⓘ</button></h4>
+        <span class="hint hidden" id="localInfoHint">Saves automatically once a day (last 7 kept), to the built-in folder unless you choose another. Restoring (here or in Cloud, above) replaces your whole account list — Undo last restore below reverts that, passwords included, but only one level back.</span>
+        <div class="settings-data-actions">
+          <button class="btn btn-ghost" id="chooseAutoFolderBtn">📁 Choose folder…</button>
+          <button class="btn btn-ghost" id="openAutoBackupBtn">📂 Open folder</button>
+        </div>
+        <span class="hint hint-tight" id="localFolderHint"></span>
+
         <div class="settings-data-actions">
           <button class="btn btn-ghost" id="exportBackupBtn">⭳ Backup accounts</button>
           <button class="btn btn-ghost" id="importBackupBtn">⭱ Restore from backup</button>
         </div>
-        <span class="hint">Backs up labels, notes, email, and login usernames — not rank/game data, which refetches from Riot anyway.</span>
-        <div class="settings-data-actions">
-          <button class="btn btn-ghost" id="openAutoBackupBtn">📂 Open auto-backup folder</button>
-        </div>
-        <span class="hint">A backup also saves automatically once a day, keeping the last 7 — no action needed.</span>
-      </label>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="fieldLocalIncludePasswords" />
+          Also include saved passwords, encrypted with a passphrase
+        </label>
+        <span class="hint hint-tight" id="localBackupStatusHint"></span>
+
+        <button class="btn btn-ghost" id="undoLastRestoreBtn">↺ Undo last restore</button>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="settingsCancelBtn">Close</button>
         <button class="btn btn-primary" id="settingsSaveBtn">Save</button>
@@ -190,6 +248,45 @@
         <span id="settingsVersion"></span>
         <a href="#" id="checkUpdateLink">Check for updates</a>
         <span id="updateCheckResult"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Generic confirm modal ----------
+       Used instead of the native window.confirm() specifically where it's
+       immediately followed by another modal that needs real keyboard focus
+       (e.g. the passphrase prompt below) — Electron/Chromium has a known
+       Windows bug where a native dialog closing doesn't reliably hand real
+       OS-level keyboard focus back to the window, so a text field opened
+       right after looks focused but silently eats no keystrokes until the
+       user manually alt-tabs away and back. Never showing a native dialog in
+       that sequence sidesteps the bug entirely rather than working around it. -->
+  <div id="confirmModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="confirmModalTitle">Are you sure?</h2>
+      <p id="confirmModalMessage"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="confirmModalCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="confirmModalOkBtn">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- Cloud backup passphrase modal (reused for both "set" and "enter to restore") ---------- -->
+  <div id="passphraseModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="passphraseModalTitle">Cloud backup passphrase</h2>
+      <p class="hint" id="passphraseModalHint"></p>
+      <label>Passphrase
+        <input type="password" id="fieldPassphrase" autocomplete="off" />
+      </label>
+      <label id="passphraseConfirmRow">Confirm passphrase
+        <input type="password" id="fieldPassphraseConfirm" autocomplete="off" />
+      </label>
+      <p class="hint" id="passphraseModalError"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="passphraseCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="passphraseOkBtn">Continue</button>
       </div>
     </div>
   </div>

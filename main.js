@@ -8,6 +8,7 @@ const { registerAccountsIpc } = require('./ipc/accountsIpc');
 const { registerRiotDataIpc } = require('./ipc/riotDataIpc');
 const { registerMasteryIpc } = require('./ipc/masteryIpc');
 const { registerBackupIpc } = require('./ipc/backupIpc');
+const { registerCloudBackupIpc } = require('./ipc/cloudBackupIpc');
 const { registerMiscIpc } = require('./ipc/miscIpc');
 const { registerLeagueClientIpc } = require('./ipc/leagueClientIpc');
 const { registerUpdateIpc } = require('./ipc/updateIpc');
@@ -16,6 +17,7 @@ const { initAutoUpdater } = require('./lib/updater');
 const { checkApiKeyExpiry } = require('./lib/notifications');
 const { refreshMasteryIfStale } = require('./lib/mastery');
 const { runAutoBackupIfDue } = require('./lib/backup');
+const { runCloudBackupIfDue } = require('./lib/cloudBackup');
 const { HOUR } = require('./lib/constants');
 const { getSettings } = require('./lib/store');
 const { applyLaunchOnStartup } = require('./lib/autoLaunch');
@@ -73,6 +75,7 @@ registerAccountsIpc();
 registerRiotDataIpc();
 registerMasteryIpc();
 registerBackupIpc();
+registerCloudBackupIpc();
 registerMiscIpc();
 registerLeagueClientIpc();
 registerUpdateIpc();
@@ -96,9 +99,11 @@ app.whenReady().then(() => {
   initAutoUpdater();
   refreshMasteryIfStale(false);
   runAutoBackupIfDue();
+  runCloudBackupIfDue();
   setInterval(checkApiKeyExpiry, 5 * 60 * 1000);
   setInterval(() => refreshMasteryIfStale(false), 6 * HOUR);
   setInterval(runAutoBackupIfDue, 6 * HOUR);
+  setInterval(runCloudBackupIfDue, 6 * HOUR);
 });
 
 app.on('window-all-closed', () => {

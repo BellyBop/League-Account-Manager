@@ -25,6 +25,7 @@ let mastery = null;
 let searchText = '';
 let filterType = '';
 let filterRank = '';
+let sortBy = ''; // '' = manual/drag order; see compareBySort below
 let draggedAccountId = null;
 let activeAccountStatus = null;
 let appVersion = '';
@@ -209,14 +210,49 @@ function matchesFilters(account) {
   return haystack.includes(searchText);
 }
 
+// Same tier/division ladder as lib/rank.js's rankValue (duplicated here
+// rather than IPC'd over — it's small, pure, and only ever needed
+// client-side for sorting the already-loaded card list).
+const RANK_SORT_TIER_ORDER = [
+  'IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD',
+  'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER',
+];
+const RANK_SORT_DIVISION_ORDER = { IV: 0, III: 1, II: 2, I: 3 };
+
+// Unranked (or a still-loading account with no cache yet) sorts as lower
+// than Iron IV, so "Rank: High to Low" doesn't scatter them through the
+// middle of the list.
+function rankSortValue(account) {
+  const solo = account.cache && account.cache.solo;
+  if (!solo) return -1;
+  const tierIdx = RANK_SORT_TIER_ORDER.indexOf(solo.tier);
+  if (tierIdx === -1) return -1;
+  if (tierIdx >= RANK_SORT_TIER_ORDER.indexOf('MASTER')) return tierIdx * 400 + solo.lp;
+  return tierIdx * 400 + (RANK_SORT_DIVISION_ORDER[solo.rank] || 0) * 100 + solo.lp;
+}
+
+function compareBySort(a, b) {
+  switch (sortBy) {
+    case 'rank-desc': return rankSortValue(b) - rankSortValue(a);
+    case 'rank-asc': return rankSortValue(a) - rankSortValue(b);
+    case 'label-asc': return (a.label || '').localeCompare(b.label || '');
+    case 'label-desc': return (b.label || '').localeCompare(a.label || '');
+    default: return 0; // manual order — stable sort leaves drag-order untouched
+  }
+}
+
 function render() {
   const missing = keyLooksMissing();
   keyWarningEl.classList.toggle('hidden', !missing);
 
-  // Favorites float to the top; stable sort keeps everything else in its
-  // existing (drag-ordered) relative position.
+  // Favorites always float to the top regardless of sort mode; within each
+  // of those two groups, the chosen sort applies (or, in manual mode, the
+  // stable sort just preserves existing drag order).
   const visible = accounts.filter(matchesFilters)
-    .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+    .sort((a, b) => {
+      const favDiff = (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+      return favDiff !== 0 ? favDiff : compareBySort(a, b);
+    });
 
   cardsEl.innerHTML = '';
   emptyStateEl.classList.toggle('hidden', accounts.length !== 0);
@@ -312,11 +348,15 @@ function buildCard(account) {
   const head = document.createElement('div');
   head.className = 'card-head';
 
+  // Dragging only makes sense in manual order — with a rank/label sort
+  // active, render() would just re-sort the drop right back where it was,
+  // which looks like the drag silently failed rather than explaining why.
+  const manualOrder = sortBy === '';
   const dragHandle = document.createElement('span');
-  dragHandle.className = 'drag-handle';
+  dragHandle.className = manualOrder ? 'drag-handle' : 'drag-handle drag-handle-disabled';
   dragHandle.textContent = '⠿';
-  dragHandle.title = 'Drag to reorder';
-  dragHandle.draggable = true;
+  dragHandle.title = manualOrder ? 'Drag to reorder' : 'Switch to "Manual order" to drag-reorder';
+  dragHandle.draggable = manualOrder;
   dragHandle.addEventListener('dragstart', (e) => {
     draggedAccountId = account.id;
     card.classList.add('dragging');
@@ -1061,7 +1101,23 @@ function renderMastery() {
     for (const champ of mastery.topChampions) {
       const chip = document.createElement('span');
       chip.className = 'mastery-chip';
-      chip.textContent = `${champ.championName}: ${champ.total.toLocaleString()}`;
+      // Mastery data computed before this feature existed won't have
+      // championIcon yet (it'll show up once the weekly/manual refresh
+      // recomputes it) — falls back to the text-only chip rather than an
+      // empty gap where the picture would be.
+      if (champ.championIcon) {
+        const img = document.createElement('img');
+        img.className = 'mastery-chip-icon';
+        img.src = champ.championIcon;
+        img.alt = '';
+        // A renamed/retired champion key 404ing shouldn't leave a broken-image
+        // glyph sitting in the chip — just drop back to text-only for that one.
+        img.addEventListener('error', () => img.remove(), { once: true });
+        chip.appendChild(img);
+      }
+      const label = document.createElement('span');
+      label.textContent = `${champ.championName}: ${champ.total.toLocaleString()}`;
+      chip.appendChild(label);
       chipsEl.appendChild(chip);
     }
     el('masteryUpdated').textContent = `Updated ${timeAgo(mastery.fetchedAt)}`;
@@ -1281,27 +1337,339 @@ async function refreshMastery() {
   btn.disabled = false;
 }
 
+// Always states the password situation explicitly, in every branch — the bug
+// this is guarding against is someone assuming passwords are in a backup
+// (because the feature exists and looks configured) when they actually
+// aren't, with nothing ever having said so out loud.
 async function exportBackup() {
   const result = await window.api.exportBackup();
-  if (result.ok) {
-    alert(`Backup saved to ${result.filePath}`);
-  } else if (result.error !== 'CANCELED') {
-    alert(`Backup failed: ${result.error}`);
+  if (!result.ok) {
+    if (result.error !== 'CANCELED') alert(`Backup failed: ${result.error}`);
+    return;
+  }
+  if (result.passphraseUnavailable) {
+    alert(`Backup saved to ${result.filePath}.\n\nPasswords NOT included — this device has no backup passphrase cached. Set one in Settings to include passwords again.`);
+  } else if (result.passwordsIncluded) {
+    alert(`Backup saved to ${result.filePath}.\n\nPasswords included.`);
+  } else {
+    alert(`Backup saved to ${result.filePath}.\n\nPasswords NOT included — turn on "include saved passwords" under Local backups in Settings if you want them backed up too.`);
   }
 }
 
 async function importBackup() {
-  if (!confirm('Restoring will replace all current accounts with the ones in the backup file. Continue?')) return;
-  const result = await window.api.importBackup();
-  if (result.ok) {
-    accounts = await window.api.getAccounts();
-    closeSettings();
-    render();
-    refreshAll();
-    alert(`Restored ${result.count} account(s).`);
-  } else if (result.error !== 'CANCELED') {
-    alert(`Restore failed: ${result.error}`);
+  if (!(await confirmModal('Restoring will replace all current accounts with the ones in the backup file (Undo last restore in Settings can put this back afterward). Continue?'))) return;
+
+  // Asked up front, before the file is even picked — same reasoning as
+  // cloudRestore(): whether THIS device has a passphrase saved doesn't tell
+  // us whether the FILE has passwords in it.
+  const passphrase = await promptPassphrase({
+    mode: 'restore',
+    title: 'Restore from backup',
+    hint: "If the backup includes encrypted passwords and you'd like them restored too, enter the backup passphrase. Leave this blank to restore everything else and skip passwords.",
+  });
+  if (passphrase === null) return;
+
+  const result = await window.api.importBackup(passphrase || null);
+  if (!result.ok) {
+    const messages = {
+      BAD_PASSPHRASE: 'Wrong passphrase — nothing was restored, try again.',
+      SNAPSHOT_FAILED: "Restore cancelled: couldn't safely save a copy of your current accounts first, so nothing was touched. Try again, or check disk space/permissions.",
+    };
+    if (result.error !== 'CANCELED') alert(messages[result.error] || `Restore failed: ${result.error}`);
+    return;
   }
+
+  accounts = await window.api.getAccounts();
+  closeSettings();
+  render();
+  refreshAll();
+
+  let message = `Restored ${result.count} account(s).`;
+  if (result.passwordsAvailable && !result.passwordsRestored) {
+    message += ' Passwords were in this backup but were not restored (skipped, or wrong passphrase).';
+  } else if (result.passwordsRestored) {
+    message += ' Passwords were restored too.';
+  }
+  alert(message);
+}
+
+// Reverts to the exact snapshot taken automatically right before the most
+// recent restore (local or cloud — see snapshotBeforeRestore in
+// lib/backup.js). Single-level, same as the delete-account undo toast: doing
+// this doesn't itself create a further undo point.
+async function handleUndoLastRestore() {
+  if (!(await confirmModal('Undo the most recent restore and put your accounts back to exactly how they were right before it?'))) return;
+  const result = await window.api.undoLastRestore();
+  if (!result.ok) {
+    alert(result.error === 'NO_SNAPSHOT' ? "There's no restore to undo yet." : `Undo failed: ${result.error}`);
+    return;
+  }
+  accounts = await window.api.getAccounts();
+  render();
+  refreshAll();
+  alert('Restored to how things were right before your last restore.');
+}
+
+// ---------------------------------------------------------------------------
+// Cloud backup — see lib/cloudBackup.js for the main-process side. The
+// passphrase modal (#passphraseModal) is shared between "set a new
+// passphrase" (needs a confirm field, rejects anything short) and "type the
+// passphrase to restore" (single field, blank is a valid "skip passwords"
+// answer — only the Cancel button aborts outright).
+// ---------------------------------------------------------------------------
+// In-page replacement for window.confirm() — see the HTML comment on
+// #confirmModal for why this exists instead of just using the native one.
+function confirmModal(message, { title = 'Are you sure?', confirmLabel = 'Continue' } = {}) {
+  return new Promise((resolve) => {
+    const overlay = el('confirmModal');
+    el('confirmModalTitle').textContent = title;
+    el('confirmModalMessage').textContent = message;
+    el('confirmModalOkBtn').textContent = confirmLabel;
+    overlay.classList.remove('hidden');
+
+    function cleanup() {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlayClick);
+      document.removeEventListener('keydown', onKeydown, true);
+    }
+    function onOk() { cleanup(); resolve(true); }
+    function onCancel() { cleanup(); resolve(false); }
+    // Dismissing any other way (clicking the backdrop, pressing Escape) has
+    // to resolve the promise too — the generic "hide every .modal-overlay on
+    // Escape/backdrop-click" handler in wireEvents() only hides the element,
+    // it doesn't know a promise is waiting on this one, so without this the
+    // caller's `await confirmModal(...)` would just hang forever and the
+    // button that triggered it would look permanently broken.
+    function onOverlayClick(e) { if (e.target === overlay) onCancel(); }
+    function onKeydown(e) { if (e.key === 'Escape') onCancel(); }
+    const okBtn = el('confirmModalOkBtn');
+    const cancelBtn = el('confirmModalCancelBtn');
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlayClick);
+    // Capture phase, ahead of the generic handler, purely so cleanup() can
+    // remove this one specifically without disturbing that one.
+    document.addEventListener('keydown', onKeydown, true);
+  });
+}
+
+function promptPassphrase({ mode, title, hint }) {
+  return new Promise((resolve) => {
+    const overlay = el('passphraseModal');
+    el('passphraseModalTitle').textContent = title;
+    el('passphraseModalHint').textContent = hint || '';
+    el('passphraseModalError').textContent = '';
+    el('fieldPassphrase').value = '';
+    el('fieldPassphraseConfirm').value = '';
+    el('passphraseConfirmRow').classList.toggle('hidden', mode !== 'set');
+    el('passphraseOkBtn').textContent = mode === 'set' ? 'Save passphrase' : 'Continue';
+    overlay.classList.remove('hidden');
+    // Deferred rather than called immediately — belt-and-suspenders against
+    // the same class of Windows/Electron focus quirk that #confirmModal's
+    // comment explains (a modal opened the instant a previous one closes can
+    // visually look focused while not actually accepting keystrokes for a
+    // beat). Every caller of this modal now opens it from a plain in-page
+    // action rather than a native dialog, so this is a safety margin, not a
+    // fix for an active bug — but it costs nothing to keep.
+    setTimeout(() => {
+      window.focus();
+      el('fieldPassphrase').focus();
+    }, 50);
+
+    function cleanup() {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlayClick);
+      document.removeEventListener('keydown', onKeydown, true);
+    }
+    function onCancel() {
+      cleanup();
+      resolve(null);
+    }
+    function onOk() {
+      const value = el('fieldPassphrase').value;
+      if (mode === 'set') {
+        if (value.length < 8) {
+          el('passphraseModalError').textContent = 'Use at least 8 characters.';
+          return;
+        }
+        if (value !== el('fieldPassphraseConfirm').value) {
+          el('passphraseModalError').textContent = "Passphrases don't match.";
+          return;
+        }
+      }
+      cleanup();
+      resolve(value);
+    }
+    // Same reasoning as #confirmModal's onOverlayClick/onKeydown — without
+    // these, dismissing via backdrop-click or Escape leaves this promise
+    // (and whatever restore/passphrase-setting flow is awaiting it) hung.
+    function onOverlayClick(e) { if (e.target === overlay) onCancel(); }
+    function onKeydown(e) { if (e.key === 'Escape') onCancel(); }
+    overlay.addEventListener('click', onOverlayClick);
+    document.addEventListener('keydown', onKeydown, true);
+    const okBtn = el('passphraseOkBtn');
+    const cancelBtn = el('passphraseCancelBtn');
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+
+// Shared by local and cloud backups (lib/backup.js) — the button/hint live
+// once, in the Data section, rather than duplicated under each backup type.
+function updateBackupPassphraseUI() {
+  const hasPassphrase = !!settings.backupPassphraseSet;
+  el('setBackupPassphraseBtn').textContent = hasPassphrase ? '🔑 Change passphrase' : '🔑 Set passphrase';
+  el('clearBackupPassphraseBtn').classList.toggle('hidden', !hasPassphrase);
+  updateBackupStatusHints();
+}
+
+// A plain, impossible-to-miss statement of whether passwords are actually
+// going into each kind of backup right now — not something you have to run
+// a backup and read a popup to find out. Deliberately styled the same
+// (hint-warn) whether "off" is an intentional choice or a passphrase that
+// hasn't been set yet: either way, the honest answer right now is "no
+// passwords in these backups", and that should never be ambiguous.
+function updateBackupStatusHints() {
+  const hasPassphrase = !!settings.backupPassphraseSet;
+
+  // The ✓/⚠ icon and its color come from CSS (.hint-ok/.hint-warn ::before),
+  // not baked into this text, so it renders as a proper icon+banner rather
+  // than an emoji character sitting inline in gray hint text.
+  const local = el('localBackupStatusHint');
+  const localOn = settings.localBackupIncludePasswords && hasPassphrase;
+  local.textContent = localOn ? 'Local backups currently include passwords.' : 'Local backups do NOT currently include passwords.';
+  local.classList.toggle('hint-ok', localOn);
+  local.classList.toggle('hint-warn', !localOn);
+
+  const cloud = el('cloudBackupStatusHint');
+  const cloudOn = settings.cloudBackupIncludePasswords && hasPassphrase;
+  cloud.textContent = cloudOn ? 'Cloud backups currently include passwords.' : 'Cloud backups do NOT currently include passwords.';
+  cloud.classList.toggle('hint-ok', cloudOn);
+  cloud.classList.toggle('hint-warn', !cloudOn);
+}
+
+async function setBackupPassphrase() {
+  const value = await promptPassphrase({
+    mode: 'set',
+    title: settings.backupPassphraseSet ? 'Change backup passphrase' : 'Set a backup passphrase',
+    hint: 'This encrypts passwords inside local and cloud backups alike. It is never stored anywhere but here in your head (or a real password manager) — losing it means losing the passwords in every backup made with it, old and new.',
+  });
+  if (value === null) return;
+
+  const result = await window.api.setBackupPassphrase(value);
+  if (result.ok) {
+    settings = { ...settings, backupPassphraseSet: true };
+    updateBackupPassphraseUI();
+  } else {
+    alert(`Couldn't set passphrase: ${result.error}`);
+  }
+}
+
+async function clearBackupPassphrase() {
+  if (!(await confirmModal('Remove the saved backup passphrase? Local and cloud backups will both stop including passwords until you set a new one.'))) return;
+  await window.api.clearBackupPassphrase();
+  settings = { ...settings, backupPassphraseSet: false, localBackupIncludePasswords: false, cloudBackupIncludePasswords: false };
+  el('fieldLocalIncludePasswords').checked = false;
+  el('fieldCloudIncludePasswords').checked = false;
+  updateBackupPassphraseUI();
+}
+
+function updateCloudBackupUI() {
+  const folder = settings.cloudBackupFolder;
+  el('cloudFolderHint').textContent = folder ? `Backing up to: ${folder}` : 'No folder chosen yet.';
+
+  el('cloudLastBackupHint').textContent = settings.cloudBackupEnabled
+    ? `Last cloud backup: ${timeAgo(settings.lastCloudBackupAt)}`
+    : 'Cloud backup is off.';
+}
+
+async function chooseCloudFolder() {
+  const result = await window.api.chooseCloudBackupFolder();
+  if (result.ok) {
+    settings = { ...settings, cloudBackupFolder: result.folder };
+    updateCloudBackupUI();
+  } else if (result.error !== 'CANCELED') {
+    alert(`Couldn't set that folder: ${result.error}`);
+  }
+}
+
+// Same shape as chooseCloudFolder — an empty localBackupFolder just means
+// "the built-in auto-backups folder", so there's nothing to show/choose
+// differently here besides which path that resolves to.
+function updateLocalFolderUI() {
+  el('localFolderHint').textContent = settings.localBackupFolder
+    ? `Backing up to: ${settings.localBackupFolder}`
+    : 'Backing up to the built-in folder.';
+}
+
+async function chooseLocalFolder() {
+  const result = await window.api.chooseAutoBackupFolder();
+  if (result.ok) {
+    settings = { ...settings, localBackupFolder: result.folder };
+    updateLocalFolderUI();
+  } else if (result.error !== 'CANCELED') {
+    alert(`Couldn't set that folder: ${result.error}`);
+  }
+}
+
+async function cloudBackupNow() {
+  const result = await window.api.runCloudBackupNow();
+  if (!result.ok) {
+    const messages = { NO_FOLDER: 'Choose a backup folder first.', FOLDER_UNAVAILABLE: "That folder isn't reachable right now (unplugged drive, sync client not running?)." };
+    alert(messages[result.error] || `Backup failed: ${result.error}`);
+    return;
+  }
+  settings = { ...settings, lastCloudBackupAt: Date.now() };
+  updateCloudBackupUI();
+  if (result.passphraseUnavailable) {
+    alert('Backed up, but passwords NOT included — this device has no backup passphrase cached. Set one in Settings to include passwords again.');
+  } else if (result.passwordsIncluded) {
+    alert(`Backed up to ${result.filePath}.\n\nPasswords included.`);
+  } else {
+    alert(`Backed up to ${result.filePath}.\n\nPasswords NOT included — turn on "include saved passwords" under Cloud backup in Settings if you want them backed up too.`);
+  }
+}
+
+async function cloudRestore() {
+  if (!(await confirmModal('Restoring will replace all current accounts with the ones in the chosen backup (Undo last restore in Settings can put this back afterward). Continue?'))) return;
+
+  // Asked up front, before the file is even picked, rather than gated on
+  // whether THIS device currently has a passphrase saved — the whole point
+  // of restoring is often a fresh machine that has never had one.
+  const passphrase = await promptPassphrase({
+    mode: 'restore',
+    title: 'Restore from cloud backup',
+    hint: "If the backup includes encrypted passwords and you'd like them restored too, enter the passphrase it was made with. Leave this blank to restore everything else and skip passwords.",
+  });
+  if (passphrase === null) return;
+
+  const result = await window.api.restoreCloudBackup(passphrase || null);
+  if (!result.ok) {
+    const messages = {
+      BAD_FILE: "That doesn't look like a cloud backup file.",
+      BAD_PASSPHRASE: 'Wrong passphrase — nothing was restored, try again.',
+      SNAPSHOT_FAILED: "Restore cancelled: couldn't safely save a copy of your current accounts first, so nothing was touched. Try again, or check disk space/permissions.",
+    };
+    if (result.error !== 'CANCELED') alert(messages[result.error] || `Restore failed: ${result.error}`);
+    return;
+  }
+
+  accounts = await window.api.getAccounts();
+  closeSettings();
+  render();
+  refreshAll();
+
+  let message = `Restored ${result.count} account(s).`;
+  if (result.passwordsAvailable && !result.passwordsRestored) {
+    message += ' Passwords were in this backup but were not restored (skipped, or wrong passphrase).';
+  } else if (result.passwordsRestored) {
+    message += ' Passwords were restored too.';
+  }
+  alert(message);
 }
 
 const UNDO_WINDOW_MS = 8000;
@@ -1459,6 +1827,12 @@ function openSettings() {
   el('fieldDefaultRegion').value = settings.defaultRegion || 'oce';
   el('fieldLaunchOnStartup').checked = !!settings.launchOnStartup;
   el('fieldAutoUpdate').checked = settings.autoUpdateCheck !== false;
+  el('fieldLocalIncludePasswords').checked = !!settings.localBackupIncludePasswords;
+  el('fieldCloudBackupEnabled').checked = !!settings.cloudBackupEnabled;
+  el('fieldCloudIncludePasswords').checked = !!settings.cloudBackupIncludePasswords;
+  updateBackupPassphraseUI();
+  updateLocalFolderUI();
+  updateCloudBackupUI();
   el('settingsVersion').textContent = appVersion ? `Version ${appVersion} · ` : '';
   el('updateCheckResult').textContent = '';
   el('settingsModal').classList.remove('hidden');
@@ -1469,12 +1843,60 @@ function closeSettings() {
   el('settingsModal').classList.add('hidden');
 }
 
+// Cloud backup's enable toggle and "include passwords" toggle persist the
+// instant they're changed, same as the folder picker and passphrase buttons
+// next to them — NOT deferred to the modal's Save button like apiKey/region
+// below. They used to be deferred, which meant clicking "Back up now" (a
+// separate, immediate action) right after ticking one of these but before
+// hitting Save would silently run against whatever was still on disk — e.g.
+// "include passwords" reads as off, no error, no warning, just a backup that
+// quietly has no passwords in it. Immediate persistence makes every control
+// in this section behave the same way: what you see checked is what's saved.
+async function toggleCloudBackupEnabled(checked) {
+  if (checked && !settings.cloudBackupFolder) {
+    alert('Choose a cloud backup folder first.');
+    el('fieldCloudBackupEnabled').checked = false;
+    return;
+  }
+  settings = await window.api.saveSettings({ cloudBackupEnabled: checked });
+  updateCloudBackupUI();
+}
+
+// Local and cloud "include passwords" toggles both gate on the same shared
+// passphrase (see updateBackupPassphraseUI) — ticking either one prompts to
+// set it if it isn't already, same immediate-persist reasoning as above.
+async function toggleLocalIncludePasswords(checked) {
+  if (checked && !settings.backupPassphraseSet) {
+    await setBackupPassphrase();
+    if (!settings.backupPassphraseSet) {
+      el('fieldLocalIncludePasswords').checked = false;
+      return;
+    }
+  }
+  settings = await window.api.saveSettings({ localBackupIncludePasswords: checked });
+  updateBackupStatusHints();
+}
+
+async function toggleCloudIncludePasswords(checked) {
+  if (checked && !settings.backupPassphraseSet) {
+    await setBackupPassphrase();
+    if (!settings.backupPassphraseSet) {
+      el('fieldCloudIncludePasswords').checked = false;
+      return; // passphrase setup was cancelled/failed — leave the setting off
+    }
+  }
+  settings = await window.api.saveSettings({ cloudBackupIncludePasswords: checked });
+  updateCloudBackupUI();
+  updateBackupStatusHints();
+}
+
 async function saveSettings() {
   const apiKey = el('fieldApiKey').value.trim();
   const defaultRegion = el('fieldDefaultRegion').value;
   const launchOnStartup = el('fieldLaunchOnStartup').checked;
   const autoUpdateCheck = el('fieldAutoUpdate').checked;
   const keyChanged = apiKey !== (settings.apiKey || '');
+
   settings = await window.api.saveSettings({ apiKey, defaultRegion, launchOnStartup, autoUpdateCheck });
   closeSettings();
 
@@ -1553,7 +1975,21 @@ function friendlyError(code) {
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
+// Generic "ⓘ" reveal — toggles the hidden hint text named in
+// data-info-target, rather than the Settings screen showing every
+// explanation up front whether or not anyone wants to read it right now.
+function wireInfoButtons() {
+  document.querySelectorAll('.info-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = document.getElementById(btn.dataset.infoTarget);
+      if (target) target.classList.toggle('hidden');
+    });
+  });
+}
+
 function wireEvents() {
+  wireInfoButtons();
   el('addBtn').addEventListener('click', () => openAccountModal(null));
   el('addFirstBtn').addEventListener('click', () => openAccountModal(null));
   el('refreshAllBtn').addEventListener('click', refreshAll);
@@ -1586,6 +2022,14 @@ function wireEvents() {
 
   el('searchInput').addEventListener('input', (e) => {
     searchText = e.target.value.trim().toLowerCase();
+    el('searchClearBtn').classList.toggle('hidden', !e.target.value);
+    render();
+  });
+  el('searchClearBtn').addEventListener('click', () => {
+    el('searchInput').value = '';
+    searchText = '';
+    el('searchClearBtn').classList.add('hidden');
+    el('searchInput').focus();
     render();
   });
   el('filterType').addEventListener('change', (e) => {
@@ -1596,11 +2040,35 @@ function wireEvents() {
     filterRank = e.target.value;
     render();
   });
+  el('sortBy').addEventListener('change', (e) => {
+    sortBy = e.target.value;
+    render();
+  });
 
   el('masteryRefreshBtn').addEventListener('click', refreshMastery);
   el('exportBackupBtn').addEventListener('click', exportBackup);
   el('importBackupBtn').addEventListener('click', importBackup);
-  el('openAutoBackupBtn').addEventListener('click', () => window.api.openAutoBackupFolder());
+  el('openAutoBackupBtn').addEventListener('click', async () => {
+    const result = await window.api.openAutoBackupFolder();
+    if (!result.ok) alert("That folder isn't reachable right now (unplugged drive, permissions?).");
+  });
+  el('chooseAutoFolderBtn').addEventListener('click', chooseLocalFolder);
+  el('undoLastRestoreBtn').addEventListener('click', handleUndoLastRestore);
+  el('fieldLocalIncludePasswords').addEventListener('change', (e) => toggleLocalIncludePasswords(e.target.checked));
+  el('setBackupPassphraseBtn').addEventListener('click', setBackupPassphrase);
+  el('clearBackupPassphraseBtn').addEventListener('click', clearBackupPassphrase);
+  el('fieldCloudBackupEnabled').addEventListener('change', (e) => toggleCloudBackupEnabled(e.target.checked));
+  el('fieldCloudIncludePasswords').addEventListener('change', (e) => toggleCloudIncludePasswords(e.target.checked));
+  el('chooseCloudFolderBtn').addEventListener('click', chooseCloudFolder);
+  el('openCloudFolderBtn').addEventListener('click', async () => {
+    const result = await window.api.openCloudBackupFolder();
+    if (result.ok) return;
+    alert(result.error === 'NO_FOLDER'
+      ? 'Choose a cloud backup folder first.'
+      : "That folder isn't reachable right now (unplugged drive, permissions?).");
+  });
+  el('cloudBackupNowBtn').addEventListener('click', cloudBackupNow);
+  el('cloudRestoreBtn').addEventListener('click', cloudRestore);
   el('undoToastBtn').addEventListener('click', undoDelete);
 
   el('collectionCloseBtn').addEventListener('click', closeCollectionModal);

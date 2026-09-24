@@ -50,23 +50,6 @@ function profileIconUrl(version, iconId) {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/profileicon/${iconId}.png`;
 }
 
-// Numeric champion id -> display name, resolved from Data Dragon and cached.
-let championNameById = null;
-let championNameByIdVersion = null;
-
-async function getChampionNameByIdMap(version) {
-  if (championNameById && championNameByIdVersion === version) return championNameById;
-  const res = await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/champion.json`);
-  const json = await res.json();
-  const map = {};
-  for (const key of Object.keys(json.data)) {
-    map[Number(json.data[key].key)] = json.data[key].name;
-  }
-  championNameById = map;
-  championNameByIdVersion = version;
-  return map;
-}
-
 // Full champion list from Data Dragon: numeric id, the Data Dragon key string
 // (used to build icon/splash URLs), and the display name. Cached per version.
 // The renderer uses this to turn an account's owned-champion / owned-skin ID
@@ -421,8 +404,13 @@ async function fetchAllChampionMasteries({ apiKey, puuid, region }) {
  * @param {object} opts { apiKey, accounts: [{ id, puuid, region }] }
  */
 async function computeMasteryWidget({ apiKey, accounts }) {
-  const version = await getDDragonVersion();
-  const championNames = await getChampionNameByIdMap(version);
+  const { version, champions } = await getChampionCatalog();
+  // Keyed by numeric champion id -> { name, key }. `key` is the URL-safe
+  // Data Dragon id (e.g. "MonkeyKing" for Wukong, "Kaisa" for Kai'Sa) —
+  // different from the display name for several champions, and it's what
+  // champIconUrl actually needs; using the display name directly there
+  // would silently 404 for every champion where the two differ.
+  const championById = new Map(champions.map((c) => [c.id, c]));
   const usable = accounts.filter((a) => a.puuid && a.region);
 
   const totals = new Map(); // championId -> { total, perAccount: { accountId: points } }
@@ -446,12 +434,16 @@ async function computeMasteryWidget({ apiKey, accounts }) {
   const topChampions = [...totals.entries()]
     .sort((a, b) => b[1].total - a[1].total)
     .slice(0, MASTERY_TOP_N)
-    .map(([championId, entry]) => ({
-      championId,
-      championName: championNames[championId] || `Champion ${championId}`,
-      total: entry.total,
-      perAccount: entry.perAccount,
-    }));
+    .map(([championId, entry]) => {
+      const champ = championById.get(championId);
+      return {
+        championId,
+        championName: (champ && champ.name) || `Champion ${championId}`,
+        championIcon: champ ? champIconUrl(version, champ.key) : null,
+        total: entry.total,
+        perAccount: entry.perAccount,
+      };
+    });
 
   // Tracked separately from perAccount membership: an account can legitimately
   // contribute 0 to every top champion (so it'd never appear in perAccount),

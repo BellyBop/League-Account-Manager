@@ -38,6 +38,18 @@ module.exports = {
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
   BACKUP_OPEN_AUTO_FOLDER: 'backup:openAutoFolder',
+  BACKUP_CHOOSE_AUTO_FOLDER: 'backup:chooseAutoFolder',
+  BACKUP_UNDO_LAST_RESTORE: 'backup:undoLastRestore',
+  // Passphrase is shared by local and cloud backups (lib/backup.js), so these
+  // three live at the general "backup" level rather than under cloudBackup.
+  BACKUP_SET_PASSPHRASE: 'backup:setPassphrase',
+  BACKUP_CLEAR_PASSPHRASE: 'backup:clearPassphrase',
+  BACKUP_VERIFY_PASSPHRASE: 'backup:verifyPassphrase',
+
+  CLOUD_BACKUP_CHOOSE_FOLDER: 'cloudBackup:chooseFolder',
+  CLOUD_BACKUP_OPEN_FOLDER: 'cloudBackup:openFolder',
+  CLOUD_BACKUP_RUN_NOW: 'cloudBackup:runNow',
+  CLOUD_BACKUP_RESTORE: 'cloudBackup:restore',
 
   LEAGUE_CLIENT_STATUS: 'leagueClient:status',
 
